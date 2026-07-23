@@ -1,0 +1,337 @@
+/* Glass dashboard for Trend Items admin screens. */
+
+.pixel-dash {
+	--pixel-green: #16a34a;
+	--pixel-ink: #0f2018;
+	--pixel-glass: rgba(255, 255, 255, 0.55);
+	--pixel-glass-border: rgba(255, 255, 255, 0.65);
+	margin: 0 20px 0 0;
+	padding: 32px;
+	min-height: calc(100vh - 120px);
+	border-radius: 24px;
+	background:
+		radial-gradient(1100px 500px at 8% -10%, rgba(22, 163, 74, 0.35), transparent 60%),
+		radial-gradient(900px 500px at 100% 0%, rgba(45, 212, 191, 0.35), transparent 55%),
+		radial-gradient(900px 600px at 50% 110%, rgba(99, 102, 241, 0.28), transparent 60%),
+		linear-gradient(160deg, #eef7f1 0%, #e7f2ee 45%, #eaf0f8 100%);
+	color: var(--pixel-ink);
+	box-sizing: border-box;
+}
+
+.pixel-dash * {
+	box-sizing: border-box;
+}
+
+/* Header */
+
+.pixel-dash-header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 24px;
+}
+
+.pixel-dash-header h1 {
+	margin: 0;
+	padding: 0;
+	font-size: 26px;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	color: var(--pixel-ink);
+}
+
+.pixel-dash-sub {
+	margin: 0;
+	font-size: 13px;
+	color: rgba(15, 32, 24, 0.65);
+}
+
+/* Glass surfaces */
+
+.pixel-glass {
+	background: var(--pixel-glass);
+	border: 1px solid var(--pixel-glass-border);
+	border-radius: 18px;
+	box-shadow:
+		0 8px 32px rgba(15, 32, 24, 0.10),
+		inset 0 1px 0 rgba(255, 255, 255, 0.7);
+	-webkit-backdrop-filter: blur(14px) saturate(1.4);
+	backdrop-filter: blur(14px) saturate(1.4);
+}
+
+/* Stat cards */
+
+.pixel-dash-stats {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+	gap: 16px;
+	margin-bottom: 24px;
+}
+
+.pixel-stat {
+	padding: 18px 20px;
+}
+
+.pixel-stat-value {
+	display: block;
+	font-size: 28px;
+	font-weight: 700;
+	line-height: 1.1;
+	letter-spacing: -0.02em;
+}
+
+.pixel-stat-label {
+	display: block;
+	margin-top: 4px;
+	font-size: 12px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: rgba(15, 32, 24, 0.55);
+}
+
+/* Panels */
+
+.pixel-dash-panel {
+	padding: 24px;
+	margin-bottom: 24px;
+}
+
+.pixel-dash-panel > h2 {
+	margin: 0 0 6px;
+	font-size: 16px;
+	font-weight: 700;
+	color: var(--pixel-ink);
+}
+
+.pixel-dash-panel .pixel-panel-hint {
+	margin: 0 0 16px;
+	font-size: 13px;
+	color: rgba(15, 32, 24, 0.6);
+}
+
+/* Picks table */
+
+.pixel-dash-table {
+	width: 100%;
+	border-collapse: separate;
+	border-spacing: 0 10px;
+}
+
+.pixel-dash-table thead th {
+	padding: 0 14px 4px;
+	text-align: left;
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: rgba(15, 32, 24, 0.5);
+}
+
+.pixel-dash-table tbody tr {
+	background: rgba(255, 255, 255, 0.5);
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+}
+
+.pixel-dash-table tbody td {
+	padding: 12px 14px;
+	vertical-align: middle;
+	border: none;
+	font-size: 13px;
+}
+
+.pixel-dash-table tbody tr td:first-child {
+	border-radius: 14px 0 0 14px;
+}
+
+.pixel-dash-table tbody tr td:last-child {
+	border-radius: 0 14px 14px 0;
+}
+
+.pixel-dash-table tr.is-hidden-row {
+	opacity: 0.55;
+}
+
+.pixel-item-cell {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 220px;
+}
+
+.pixel-item-thumb {
+	width: 44px;
+	height: 44px;
+	flex: 0 0 44px;
+	border-radius: 10px;
+	overflow: hidden;
+	background: rgba(15, 32, 24, 0.08);
+}
+
+.pixel-item-thumb img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.pixel-item-cell a {
+	text-decoration: none;
+	color: var(--pixel-ink);
+	font-weight: 600;
+}
+
+.pixel-item-cell .pixel-item-view {
+	display: block;
+	font-size: 12px;
+	font-weight: 400;
+	color: rgba(15, 32, 24, 0.55);
+}
+
+.pixel-reason-badge {
+	display: inline-block;
+	padding: 3px 10px;
+	border-radius: 999px;
+	background: rgba(22, 163, 74, 0.14);
+	border: 1px solid rgba(22, 163, 74, 0.25);
+	color: #14803c;
+	font-size: 12px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.pixel-score {
+	font-variant-numeric: tabular-nums;
+	font-weight: 700;
+}
+
+/* Toggle pills */
+
+.pixel-pill {
+	display: inline-block;
+	padding: 6px 14px;
+	border-radius: 999px;
+	font-size: 12px;
+	font-weight: 600;
+	text-decoration: none;
+	white-space: nowrap;
+	border: 1px solid rgba(15, 32, 24, 0.15);
+	background: rgba(255, 255, 255, 0.6);
+	color: rgba(15, 32, 24, 0.7);
+	transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.pixel-pill:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 4px 14px rgba(15, 32, 24, 0.15);
+	color: var(--pixel-ink);
+}
+
+.pixel-pill.is-on {
+	background: rgba(22, 163, 74, 0.9);
+	border-color: transparent;
+	color: #fff;
+}
+
+.pixel-pill.is-on:hover {
+	color: #fff;
+}
+
+.pixel-pill.is-warn.is-on {
+	background: rgba(220, 38, 38, 0.85);
+}
+
+/* Settings */
+
+.pixel-field-label {
+	display: block;
+	margin: 0 0 6px;
+	font-size: 12px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: rgba(15, 32, 24, 0.55);
+}
+
+.pixel-dash input.pixel-field {
+	width: 100%;
+	max-width: 640px;
+	margin-bottom: 16px;
+	padding: 10px 14px;
+	border-radius: 12px;
+	border: 1px solid rgba(255, 255, 255, 0.7);
+	background: rgba(255, 255, 255, 0.65);
+	box-shadow: inset 0 1px 3px rgba(15, 32, 24, 0.06);
+	font-family: Consolas, Monaco, monospace;
+	font-size: 13px;
+	color: var(--pixel-ink);
+}
+
+.pixel-dash input.pixel-field:focus {
+	border-color: rgba(22, 163, 74, 0.5);
+	box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+	outline: none;
+}
+
+.pixel-dash .pixel-button,
+.pixel-dash .pixel-button:focus {
+	display: inline-block;
+	padding: 10px 20px;
+	border: none;
+	border-radius: 999px;
+	background: var(--pixel-green);
+	color: #fff;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	text-decoration: none;
+	box-shadow: 0 6px 18px rgba(22, 163, 74, 0.35);
+	transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.pixel-dash .pixel-button:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 8px 22px rgba(22, 163, 74, 0.45);
+	color: #fff;
+}
+
+.pixel-dash .pixel-button.is-ghost {
+	background: rgba(255, 255, 255, 0.6);
+	color: var(--pixel-ink);
+	border: 1px solid rgba(15, 32, 24, 0.15);
+	box-shadow: none;
+}
+
+.pixel-endpoint {
+	display: inline-block;
+	padding: 10px 14px;
+	border-radius: 12px;
+	background: rgba(15, 32, 24, 0.85);
+	color: #d1fadf;
+	font-family: Consolas, Monaco, monospace;
+	font-size: 12.5px;
+	word-break: break-all;
+}
+
+/* Empty state */
+
+.pixel-empty {
+	padding: 48px 24px;
+	text-align: center;
+}
+
+.pixel-empty p {
+	margin: 0;
+	font-size: 14px;
+	color: rgba(15, 32, 24, 0.6);
+}
+
+@media (max-width: 782px) {
+	.pixel-dash {
+		padding: 20px 16px;
+		margin: 0;
+		border-radius: 0;
+	}
+}

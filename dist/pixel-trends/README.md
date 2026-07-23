@@ -96,6 +96,10 @@ HMAC signature produced with the signing secret.
 
 ## Install
 
-Copy the `pixel-trends/` directory into `wp-content/plugins/` and activate.
-Activation generates the site token and signing secret; register those with
-the central Worker and the morning refreshes take it from there.
+Upload `dist/pixel-trends.zip` via **Plugins → Add New → Upload Plugin** (or
+copy the `dist/pixel-trends/` directory into `wp-content/plugins/`) and
+activate. Activation generates the site token and signing secret; register
+those with the central Worker and the morning refreshes take it from there.
+
+To rebuild the zip after changing the source: run `./build.sh` from the repo
+root.
