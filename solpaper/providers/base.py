@@ -33,6 +33,7 @@ class PairSnapshot:
     sells: dict = field(default_factory=dict)
     change: dict = field(default_factory=dict)   # m5/h1/h24 -> percent
     data_age_s: float | None = None
+    from_cache: bool = False   # served from our cache: already recorded once
 
 
 class PairDiscovery(Protocol):

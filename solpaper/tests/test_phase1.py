@@ -191,6 +191,10 @@ def test_scanner_logs_every_pair_and_writes_nothing_during_a_gap(cfg):
     assert conn.execute("SELECT COUNT(*) FROM pairs_seen").fetchone()[0] == 2
     assert conn.execute("SELECT COUNT(*) FROM events WHERE kind='pair_new'").fetchone()[0] == 2
 
+    # Served again from our cache inside the freshness window: not a new observation.
+    assert sc.run_job("gt_new_pools") == 0
+    assert conn.execute("SELECT COUNT(*) FROM pairs_seen").fetchone()[0] == 2
+
     state["down"] = True
     clk.t += 1000  # cache expired
     assert sc.run_job("gt_new_pools") is None

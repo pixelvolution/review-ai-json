@@ -63,8 +63,8 @@ class Scanner:
     def record(self, snaps: list[PairSnapshot]) -> int:
         n = 0
         for s in snaps:
-            if not s.pair_address:
-                continue
+            if not s.pair_address or s.from_cache:
+                continue  # a cached response was already recorded when it was fetched
             new = self.conn.execute(
                 "INSERT OR IGNORE INTO pairs (pair_address, dex, base_mint, quote_mint, "
                 "base_symbol, name, pair_created_at, first_seen_at, first_source) "

@@ -40,6 +40,7 @@ class Http:
         self.backoffs: dict[str, Backoff] = {}
         self.gap_id: dict[str, int] = {}
         self.last_age_s: float | None = None  # data age of the last returned response
+        self.last_from_cache = False          # was it served from our own cache?
         b = cfg.get("backoff", {})
         for name, p in cfg["providers"].items():
             self.clients[name] = httpx.Client(
@@ -58,6 +59,7 @@ class Http:
                                 "WHERE key = ?", (key,)).fetchone()
         if row and self.wall() - row["fetched_at"] < fresh_s:
             self.last_age_s = self.wall() - row["fetched_at"] + (row["cdn_age_s"] or 0)
+            self.last_from_cache = True
             return json.loads(row["body"])
         return None
 
@@ -135,6 +137,7 @@ class Http:
             else:
                 self._cache_put(key, provider, url, status, body, age)
                 self.last_age_s = age or 0.0
+                self.last_from_cache = False
                 bo.success()
                 self._gap_success(provider)
                 return data

@@ -56,11 +56,11 @@ class GeckoTerminal:
                                   fresh_s=self.fresh.get(fresh_key, 60))
         if data is None or not isinstance(data.get("data"), list):
             return None
-        age = self.http.last_age_s
+        age, cached = self.http.last_age_s, self.http.last_from_cache
         out = []
         for item in data["data"]:
             s = parse_pool(item, source)
-            s.data_age_s = age
+            s.data_age_s, s.from_cache = age, cached
             out.append(s)
         return out
 

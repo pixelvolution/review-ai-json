@@ -46,7 +46,7 @@ freshness_s:
   gt_pools_multi: 60
   ds_boosts: 120
   ds_profiles: 120
-  ds_pairs: 30
+  ds_pairs: 25           # < refresh interval, so each refresh gets new data
 
 # ---------------------------------------------------------------- scanner
 scanner:

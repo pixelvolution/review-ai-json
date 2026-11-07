@@ -83,7 +83,7 @@ class DexScreener:
                     best[t] = p
             for p in best.values():
                 s = parse_pair(p, job)
-                s.data_age_s = self.http.last_age_s
+                s.data_age_s, s.from_cache = self.http.last_age_s, self.http.last_from_cache
                 out.append(s)
         return out
 
@@ -98,6 +98,6 @@ class DexScreener:
         out = []
         for p in data.get("pairs") or []:
             s = parse_pair(p, "ds_refresh")
-            s.data_age_s = self.http.last_age_s
+            s.data_age_s, s.from_cache = self.http.last_age_s, self.http.last_from_cache
             out.append(s)
         return out
