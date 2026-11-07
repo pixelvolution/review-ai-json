@@ -51,6 +51,21 @@ class PairQuotes(Protocol):
     def pairs(self, addresses: list[str]) -> list[PairSnapshot] | None: ...
 
 
+class TokenSafety(Protocol):
+    """Reads token mint facts (authorities, extensions) for safety filters."""
+    name: str
+
+    def check(self, mints: list[str]) -> dict | None: ...
+
+
+class SellRoute(Protocol):
+    """Quotes a sale without trading: can this amount be sold, and at what impact?"""
+    name: str
+
+    def quote_sell(self, mint: str, decimals: int, out_mint: str, usd_amount: float,
+                   price_usd: float, price_native: float | None): ...
+
+
 def f(x) -> float | None:
     """Parse a provider number; None stays None (never 0)."""
     if x is None or x == "":

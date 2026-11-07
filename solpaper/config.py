@@ -17,3 +17,8 @@ def load_config(path: str | os.PathLike | None = None) -> dict:
     db = Path(os.environ.get("SOLPAPER_DB") or cfg.get("db_path", "solpaper.db"))
     cfg["db_path"] = str(db if db.is_absolute() else p.parent / db)
     return cfg
+
+
+def dex_label(cfg: dict, dex: str | None) -> str | None:
+    """One label per venue (spec EC-05): 'pumpfun' and 'pump-fun' are the same."""
+    return cfg.get("dex_aliases", {}).get(dex, dex)

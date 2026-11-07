@@ -14,7 +14,7 @@ import csv
 import sys
 from pathlib import Path
 
-from .config import load_config
+from .config import dex_label, load_config
 from .db import connect
 
 QUERIES = {
@@ -24,7 +24,8 @@ QUERIES = {
 }
 
 
-def export(db_path: str, out_dir: Path) -> dict[str, int]:
+def export(db_path: str, out_dir: Path, cfg: dict | None = None) -> dict[str, int]:
+    cfg = cfg or load_config()
     out_dir.mkdir(parents=True, exist_ok=True)
     conn = connect(db_path)
     counts = {}
@@ -32,9 +33,14 @@ def export(db_path: str, out_dir: Path) -> dict[str, int]:
         cur = conn.execute(sql)
         with open(out_dir / name, "w", newline="", encoding="utf-8-sig") as fh:
             w = csv.writer(fh)
-            w.writerow([d[0] for d in cur.description])
+            cols = [d[0] for d in cur.description]
+            w.writerow(cols)
+            dex_i = cols.index("dex") if "dex" in cols else None
             n = 0
             for row in cur:
+                row = list(row)
+                if dex_i is not None:
+                    row[dex_i] = dex_label(cfg, row[dex_i])
                 w.writerow(row)
                 n += 1
         counts[name] = n

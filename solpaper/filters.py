@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from .config import dex_label
 from .db import event, now_iso
 from .providers.jupiter import Jupiter
 from .providers.solana_rpc import SolanaRpc, TokenCheck, risky_extensions
@@ -44,10 +45,11 @@ def _ts(s: str | None) -> datetime | None:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
-def tier1(row, fc: dict, now: datetime) -> Decision | None:
+def tier1(row, cfg: dict, now: datetime) -> Decision | None:
     """Checks on stored data only. Returns a skip Decision, or None to continue."""
+    fc = cfg["filters"]
     pa = row["pair_address"]
-    dex = fc["dex_aliases"].get(row["dex"], row["dex"])
+    dex = dex_label(cfg, row["dex"])
     m = {"dex": dex, "liquidity_usd": row["liquidity_usd"], "quote_mint": row["quote_mint"]}
     if row["quote_mint"] not in fc["allowed_quotes"]:
         return Decision(pa, "skip", "tier1", "quote_not_allowed",
@@ -132,10 +134,15 @@ class Filters:
             tc = TokenCheck(mint, bool(r["readable"]), r["program"], r["decimals"],
                             r["mint_authority"], r["freeze_authority"],
                             json.loads(r["extensions"] or "{}"))
-            # Revoked authorities can't come back: a clean result never expires.
-            clean = tc.readable and not tc.mint_authority and not tc.freeze_authority \
-                and not risky_extensions(tc, self.fc["risky_extensions"])
-            if clean or self.wall() - r["checked_at"] < ttl:
+            # Permanent only if nothing about the result can change: both
+            # authorities revoked (they can't be re-enabled) and none of the
+            # watched extensions present at all. Token-2022 extensions are fixed
+            # when a mint is created, so a mint without them can't gain them;
+            # one that has them (e.g. a zero transfer fee) can be changed by its
+            # authority and is re-read after the TTL (spec FR-11).
+            permanent = tc.readable and not tc.mint_authority and not tc.freeze_authority \
+                and not any(n in tc.extensions for n in self.fc["risky_extensions"])
+            if permanent or self.wall() - r["checked_at"] < ttl:
                 out[mint] = tc
         return out
 
@@ -155,12 +162,15 @@ class Filters:
             "SELECT * FROM sell_quotes WHERE mint = ? AND checked_at > ? ORDER BY id DESC LIMIT 1",
             (mint, self.wall() - self.fc["sell_quote_ttl_s"])).fetchone()
         if r is None:
+            if not row["price_usd"] or row["price_usd"] <= 0 or tc.decimals is None:
+                return Decision(pa, "skip", "sell_route", "price_unknown",
+                                "no price or token decimals to size the sell quote", m)
             q = self.jup.quote_sell(mint, tc.decimals, row["quote_mint"],
                                     self.fc["sell_check_usd"], row["price_usd"],
-                                    row["price_native"])
+                                    row["price_native"], self.fc["sell_quote_slippage_bps"])
             if q is None:
                 return Decision(pa, "skip", "sell_route", "check_unavailable:sell_route",
-                                "Jupiter quote unavailable (rate limit, outage or no price)", m)
+                                "Jupiter quote unavailable (rate limit, outage)", m)
             self.conn.execute(
                 "INSERT INTO sell_quotes (pair_address, mint, ts, checked_at, usd_in, amount_in, "
                 "out_mint, out_amount, price_impact, effective_vs_pool, routes, ok, reason) "
@@ -173,7 +183,10 @@ class Filters:
         m = {**m, "sell_impact": r["price_impact"], "effective_vs_pool": r["effective_vs_pool"],
              "routes": r["routes"]}
         if not r["ok"]:
-            return Decision(pa, "skip", "sell_route", "no_sell_route",
+            if (r["reason"] or "").startswith("no_route:"):
+                return Decision(pa, "skip", "sell_route", "no_sell_route",
+                                f"Jupiter: {r['reason'].split(':', 1)[1]}", m)
+            return Decision(pa, "skip", "sell_route", "sell_quote_error",
                             f"Jupiter: {r['reason']}", m)
         if r["price_impact"] is not None and r["price_impact"] > self.fc["max_sell_impact"]:
             return Decision(pa, "skip", "sell_route", "sell_impact_too_high",
@@ -188,7 +201,7 @@ class Filters:
         decisions: dict[str, Decision] = {}
         survivors = []
         for row in rows:
-            d = tier1(row, self.fc, now)
+            d = tier1(row, self.cfg, now)
             if d:
                 decisions[row["pair_address"]] = d
             else:
@@ -205,8 +218,7 @@ class Filters:
 
         for row in survivors:
             pa = row["pair_address"]
-            m = {"dex": self.fc["dex_aliases"].get(row["dex"], row["dex"]),
-                 "liquidity_usd": row["liquidity_usd"]}
+            m = {"dex": dex_label(self.cfg, row["dex"]), "liquidity_usd": row["liquidity_usd"]}
             tc = tokens.get(row["base_mint"])
             if tc is None:
                 decisions[pa] = Decision(pa, "skip", "token", "check_unavailable:token",

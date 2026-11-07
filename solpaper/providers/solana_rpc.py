@@ -25,19 +25,18 @@ class TokenCheck:
 
 
 def risky_extensions(check: TokenCheck, names: list[str]) -> list[str]:
-    """Extensions present *and* armed. An extension slot with no authority,
-    program or fee set can't be used against holders, so it isn't counted."""
+    """Risky Token-2022 extensions on this mint (spec FR-08).
+
+    Presence alone counts for transferHook, permanentDelegate, nonTransferable
+    and pausableConfig: an unset hook program or delegate can still be set
+    later by its authority. defaultAccountState counts only when it is
+    "frozen", and transferFeeConfig only when a fee is non-zero.
+    """
     out = []
     for name in names:
         if name not in check.extensions:
             continue
         st = check.extensions[name] or {}
-        if name == "transferHook" and not st.get("programId"):
-            continue
-        if name == "permanentDelegate" and not st.get("delegate"):
-            continue
-        if name == "pausableConfig" and not (st.get("authority") or st.get("paused")):
-            continue
         if name == "defaultAccountState" and st.get("accountState") != "frozen":
             continue
         if name == "transferFeeConfig":

@@ -123,16 +123,12 @@ class Http:
         key = f"{provider}|rpc|{json.dumps([method, params], sort_keys=True)}"
         url = f"{self.cfg['providers'][provider]['base_url']} rpc:{method}"
         data = self._fetch(provider, bucket, key, url, fresh_s,
-                           lambda c: c.post("", json=payload))
-        if data is None:
-            return None
-        if "error" in data:
-            event(self.conn, "rpc_error", f"{provider} {method}: {data['error']}",
-                  {"method": method})
-            return None
-        return data.get("result")
+                           lambda c: c.post("", json=payload),
+                           error_in_body=lambda d: d.get("error") if isinstance(d, dict) else None)
+        return None if data is None else data.get("result")
 
-    def _fetch(self, provider, bucket, key, url, fresh_s, send, answer_statuses=frozenset()):
+    def _fetch(self, provider, bucket, key, url, fresh_s, send, answer_statuses=frozenset(),
+               error_in_body=None):
         if fresh_s > 0:
             hit = self._cache_get(key, fresh_s)
             if hit is not None:
@@ -169,6 +165,12 @@ class Http:
             except json.JSONDecodeError as e:
                 err = f"bad JSON: {e}"
             else:
+                body_err = error_in_body(data) if error_in_body else None
+                if body_err:
+                    # e.g. a JSON-RPC error inside HTTP 200: a failure, not data.
+                    err = f"error in reply: {body_err}"
+                    event(self.conn, "rpc_error", f"{provider}: {body_err}", {"url": url})
+            if err is None:
                 self._cache_put(key, provider, url, status, body, age)
                 self.last_age_s = age  # None when the CDN didn't say: unknown, not fresh
                 self.last_from_cache = False

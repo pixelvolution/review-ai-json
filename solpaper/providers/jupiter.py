@@ -15,6 +15,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# Client errors are answers about our request, not outages (429 is a rate limit).
+CLIENT_ERRORS = frozenset(set(range(400, 500)) - {429})
+
 QUOTE_DECIMALS = {
     "So11111111111111111111111111111111111111112": 9,   # SOL
     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": 6,  # USDC
@@ -23,8 +26,8 @@ QUOTE_DECIMALS = {
 
 @dataclass
 class SellQuote:
-    ok: bool                      # a route exists
-    reason: str | None = None     # error code when no route
+    ok: bool                      # a route exists and the reply was complete
+    reason: str | None = None     # "no_route:<code>" or "quote_error:<what>" when not ok
     amount_in: int | None = None  # base units of the token sold
     out_amount: int | None = None
     price_impact: float | None = None   # fraction, e.g. 0.02 = 2%
@@ -39,31 +42,38 @@ class Jupiter:
         self.http, self.cfg = http, cfg
 
     def quote_sell(self, mint: str, decimals: int, out_mint: str, usd_amount: float,
-                   price_usd: float, price_native: float | None) -> SellQuote | None:
+                   price_usd: float, price_native: float | None,
+                   slippage_bps: int) -> SellQuote | None:
         """Quote selling ``usd_amount`` of ``mint`` into ``out_mint``.
 
-        None means the check couldn't run (rate limit, outage). A SellQuote
-        with ok=False means Jupiter answered: there is no way to sell.
+        Returns None only when the check couldn't run (429, 5xx, network).
+        Otherwise a SellQuote: ok, no_route (HTTP 400: Jupiter says it can't be
+        sold) or quote_error (any other 4xx, or an incomplete reply). The caller
+        must have a positive price and known decimals.
         """
-        if not price_usd or price_usd <= 0 or decimals is None:
-            return None
         amount = int(usd_amount / price_usd * 10 ** decimals)
         if amount <= 0:
-            return None
+            return SellQuote(ok=False, reason="quote_error:amount rounds to zero")
         data = self.http.get_json(
             self.name, "quote", "/swap/v1/quote",
-            {"inputMint": mint, "outputMint": out_mint, "amount": amount, "slippageBps": 100},
-            answer_statuses=frozenset({400}))
+            {"inputMint": mint, "outputMint": out_mint, "amount": amount,
+             "slippageBps": slippage_bps},
+            answer_statuses=CLIENT_ERRORS)
         if data is None:
             return None
-        if data.get("_http_status") == 400:
-            return SellQuote(ok=False, reason=data.get("errorCode") or "NO_ROUTE",
+        status = data.get("_http_status")
+        if status == 400:
+            return SellQuote(ok=False, reason=f"no_route:{data.get('errorCode') or 'NO_ROUTE'}",
                              amount_in=amount)
+        if status is not None:
+            return SellQuote(ok=False, reason=f"quote_error:HTTP {status}", amount_in=amount)
         try:
             out_amount = int(data["outAmount"])
-            impact = float(data.get("priceImpactPct") or 0)
-        except (KeyError, TypeError, ValueError):
-            return None
+            impact = float(data["priceImpactPct"])
+        except (KeyError, TypeError, ValueError) as e:
+            # Unknown impact is not zero impact.
+            return SellQuote(ok=False, reason=f"quote_error:incomplete reply ({e})",
+                             amount_in=amount)
         effective = None
         out_dec = QUOTE_DECIMALS.get(out_mint)
         if price_native and out_dec is not None:

@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import sys
 
-from .config import load_config
+from .config import dex_label, load_config
 from .db import connect
 
 
 def main() -> int:
-    conn = connect(load_config()["db_path"])
+    cfg = load_config()
+    conn = connect(cfg["db_path"])
     q = lambda sql, *a: conn.execute(sql, a).fetchall()
     one = lambda sql, *a: conn.execute(sql, a).fetchone()[0]
 
@@ -29,8 +30,12 @@ def main() -> int:
         "SELECT first_source, COUNT(*) FROM pairs GROUP BY 1 ORDER BY 2 DESC")))
     print("observations by source: " + ", ".join(f"{r[0]} {r[1]}" for r in q(
         "SELECT source, COUNT(*) FROM pairs_seen GROUP BY 1 ORDER BY 2 DESC")))
-    print("dexes: " + ", ".join(f"{r[0]} {r[1]}" for r in q(
-        "SELECT dex, COUNT(*) FROM pairs GROUP BY 1 ORDER BY 2 DESC LIMIT 8")))
+    dexes: dict = {}
+    for r in q("SELECT dex, COUNT(*) FROM pairs GROUP BY 1"):
+        label = dex_label(cfg, r[0])
+        dexes[label] = dexes.get(label, 0) + r[1]
+    print("dexes: " + ", ".join(f"{k} {v}" for k, v in
+                                sorted(dexes.items(), key=lambda kv: -kv[1])[:8]))
 
     print("\n== Requests by provider (sent, not cache hits)")
     for r in q("""SELECT provider, bucket, COUNT(*) n,
@@ -57,7 +62,8 @@ def main() -> int:
     print("\n== Filters (each pair's current decision)")
     total = one("SELECT COUNT(*) FROM filter_state")
     if not total:
-        print("no decisions yet (the filter job runs every 30s)")
+        print(f"no decisions yet (the filter job runs every "
+              f"{cfg['scanner']['intervals_s']['filter']}s)")
     else:
         passed = one("SELECT COUNT(*) FROM filter_state WHERE outcome = 'pass'")
         print(f"pairs evaluated: {total}   passed: {passed} ({100 * passed / total:.0f}%)   "
@@ -82,7 +88,7 @@ def main() -> int:
     print(f"{'pair':24s} {'dex':16s} {'created':17s} {'liq':>9s} {'vol5m':>8s} {'vol1h':>9s} "
           f"{'b/s 1h':>9s} {'obs':>4s} {'age':>5s} src")
     for r in rows:
-        print(f"{(r['name'] or '')[:24]:24s} {(r['dex'] or '')[:16]:16s} "
+        print(f"{(r['name'] or '')[:24]:24s} {(dex_label(cfg, r['dex']) or '')[:16]:16s} "
               f"{(r['pair_created_at'] or '')[:16]:17s} {fmt(r['liquidity_usd'], '$'):>9s} "
               f"{fmt(r['vol_m5'], '$'):>8s} {fmt(r['vol_h1'], '$'):>9s} "
               f"{str(r['buys_h1'])+'/'+str(r['sells_h1']):>9s} {r['n']:>4d} "

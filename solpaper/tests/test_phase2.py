@@ -132,9 +132,18 @@ def test_ec06_quote_must_be_sol_or_usdc(env):
     assert decide(env, "A")["A"].reason == "quote_not_allowed"
 
 
-def test_ec05_dex_labels_are_normalized(env):
+def test_ec05_dex_labels_are_normalized(env, tmp_path, monkeypatch, capsys):
+    from solpaper import stats
+    from solpaper.export import export
     add_pair(env["conn"], "A", dex="pumpfun", liq=None)
+    add_pair(env["conn"], "B", dex="pump-fun", liq=None)
     assert decide(env, "A")["A"].metrics["dex"] == "pump-fun"
+    monkeypatch.setenv("SOLPAPER_DB", env["cfg"]["db_path"])
+    stats.main()
+    out = capsys.readouterr().out
+    assert "dexes: pump-fun 2" in out and "pumpfun" not in out
+    export(env["cfg"]["db_path"], tmp_path, env["cfg"])
+    assert "pumpfun," not in (tmp_path / "readings.csv").read_text(encoding="utf-8-sig")
 
 
 def test_fr01_tier1_skips_make_no_network_requests(env):
@@ -169,9 +178,9 @@ def test_fr07_freeze_authority_active(env):
     ("transferFeeConfig", {"newerTransferFee": {"transferFeeBasisPoints": 0},
                            "olderTransferFee": {"transferFeeBasisPoints": 0}}, False),
     ("transferHook", {"programId": "Hook1111"}, True),
-    ("transferHook", {"programId": None}, False),
+    ("transferHook", {"programId": None, "authority": "Admin111"}, True),  # presence counts
     ("permanentDelegate", {"delegate": "Thief111"}, True),
-    ("permanentDelegate", {"delegate": None}, False),
+    ("permanentDelegate", {"delegate": None}, True),                      # presence counts
     ("defaultAccountState", {"accountState": "frozen"}, True),
     ("defaultAccountState", {"accountState": "initialized"}, False),
     ("nonTransferable", {}, True),
@@ -197,10 +206,45 @@ def test_ec01_rpc_outage_is_never_a_pass(env):
     assert (d.outcome, d.reason) == ("skip", "check_unavailable:token")
 
 
+def test_ec01_jsonrpc_error_inside_http_200_is_a_gap(env):
+    add_pair(env["conn"], "A")
+    net = env["net"]
+    real = net.__call__
+
+    def rpc_error(req):
+        if req.url.host == "api.mainnet-beta.solana.com":
+            net.calls["rpc"] += 1
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1,
+                                             "error": {"code": -32005, "message": "busy"}})
+        return real(req)
+
+    env["f"].rpc.http.clients["solana_rpc"]._transport = httpx.MockTransport(rpc_error)
+    d = decide(env, "A")["A"]
+    assert d.reason == "check_unavailable:token"
+    gap = env["conn"].execute("SELECT provider, ended_at FROM data_gaps").fetchone()
+    assert gap["provider"] == "solana_rpc" and gap["ended_at"] is None
+    assert env["f"].rpc.http.backoffs["solana_rpc"].blocked
+    assert env["conn"].execute("SELECT COUNT(*) FROM token_checks").fetchone()[0] == 0
+
+
 def test_ec02_unreadable_mint(env):
     add_pair(env["conn"], "A", mint="M1")
     env["net"].mints["M1"] = None
     assert decide(env, "A")["A"].reason == "mint_unreadable"
+
+
+def test_fr11_changeable_extensions_are_rechecked_after_ttl(env):
+    add_pair(env["conn"], "A", mint="M1")
+    env["net"].mints["M1"] = mint_value(extensions=[
+        {"extension": "transferFeeConfig",
+         "state": {"newerTransferFee": {"transferFeeBasisPoints": 0}}}])
+    assert decide(env, "A")["A"].outcome == "pass"   # zero fee: allowed today
+    env["net"].mints["M1"] = mint_value(extensions=[
+        {"extension": "transferFeeConfig",
+         "state": {"newerTransferFee": {"transferFeeBasisPoints": 900}}}])
+    env["clk"].t += env["cfg"]["filters"]["token_check_ttl_s"] + 1
+    assert decide(env, "A")["A"].reason == "token_extension_risk:transferFeeConfig"
+    assert env["net"].calls["rpc"] == 2
 
 
 def test_fr11_token_checks_are_cached(env):
@@ -246,6 +290,32 @@ def test_fr14_sell_impact_too_high(env):
     env["net"].quote = (200, q)
     d = decide(env, "A")["A"]
     assert d.reason == "sell_impact_too_high" and "8.0%" in d.detail
+
+
+def test_fr14_missing_price_impact_is_not_zero(env):
+    add_pair(env["conn"], "A")
+    q = json.loads((FIX / "jup_quote_ok.json").read_text())
+    del q["priceImpactPct"]
+    env["net"].quote = (200, q)
+    d = decide(env, "A")["A"]
+    assert (d.outcome, d.reason) == ("skip", "sell_quote_error")
+    assert env["conn"].execute("SELECT price_impact FROM sell_quotes").fetchone()[0] is None
+
+
+def test_ec07_other_client_errors_are_quote_errors_not_outages(env):
+    add_pair(env["conn"], "A")
+    env["net"].quote = (404, {"error": "not found"})
+    d = decide(env, "A")["A"]
+    assert d.reason == "sell_quote_error" and "HTTP 404" in d.detail
+    assert env["conn"].execute("SELECT COUNT(*) FROM data_gaps").fetchone()[0] == 0
+
+
+def test_ec07_missing_price_is_price_unknown(env):
+    add_pair(env["conn"], "A")
+    env["conn"].execute("UPDATE pairs_seen SET price_usd = NULL")
+    d = decide(env, "A")["A"]
+    assert d.reason == "price_unknown"
+    assert env["net"].calls["jup"] == 0
 
 
 def test_fr14_quote_outage_is_check_unavailable(env):

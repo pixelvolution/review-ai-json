@@ -85,7 +85,11 @@ filters:
                      defaultAccountState, transferFeeConfig]
   token_check_ttl_s: 600        # re-check authorities that weren't revoked
   sell_check_usd: 10            # quote selling this much (default position size)
+  sell_quote_slippage_bps: 100  # slippage tolerance sent with the quote request
   max_sell_impact: 0.03         # 3%
   sell_quote_ttl_s: 120
-  dex_aliases:                  # providers label the same venue differently
-    pumpfun: pump-fun
+
+# Providers label the same venue differently; every rule, stat and export
+# uses the label on the right.
+dex_aliases:
+  pumpfun: pump-fun
