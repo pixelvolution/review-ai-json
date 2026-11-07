@@ -1,0 +1,65 @@
+# solpaper: paper-trading research system for new Solana pairs.
+# SIMULATOR ONLY. No keys, no wallets, no signing, no real orders.
+
+db_path: solpaper.db          # relative to this file unless absolute
+
+# ---------------------------------------------------------------- providers
+# Limits below were verified on 2026-11-07:
+#   DexScreener (docs.dexscreener.com/api/reference): 60 req/min for
+#     token-profiles / token-boosts; 300 req/min for pairs, search,
+#     tokens/v1 and token-pairs (up to 30 addresses per call).
+#   GeckoTerminal keyless (docs.coingecko.com/docs/errors-and-rate-limits):
+#     "IP-based rate limiting, shared across all users on the same IP". No
+#     fixed number is published. A free Demo key gives 100 calls/min.
+#   Solana public RPC: the docs page is behind a bot check; the RPC's own
+#     response headers report x-ratelimit-method-limit 150,
+#     x-ratelimit-rps-limit 250, x-ratelimit-conn-limit 40.
+# `safety` is the share of the published limit we allow ourselves; requests
+# are spaced evenly so the scheduler slows down well before any cap.
+providers:
+  dexscreener:
+    base_url: https://api.dexscreener.com
+    timeout_s: 15
+    buckets:
+      slow: {rpm: 60, safety: 0.5}      # token-profiles, token-boosts
+      fast: {rpm: 300, safety: 0.5}     # pairs, tokens, token-pairs, search
+  geckoterminal:
+    base_url: https://api.geckoterminal.com/api/v2
+    timeout_s: 20
+    buckets:
+      keyless: {rpm: 10, safety: 1.0}   # no published number: stay very low
+  solana_rpc:
+    base_url: https://api.mainnet-beta.solana.com
+    timeout_s: 20
+    buckets:
+      rpc: {rpm: 120, safety: 0.5}      # phase 2: mint/freeze authority checks
+
+backoff:
+  base_s: 2
+  max_s: 300
+  jitter: 0.2           # +/- 20%
+
+# Never ask for the same thing twice inside its freshness window.
+freshness_s:
+  gt_new_pools: 60
+  gt_trending: 300
+  gt_pools_multi: 60
+  ds_boosts: 120
+  ds_profiles: 120
+  ds_pairs: 30
+
+# ---------------------------------------------------------------- scanner
+scanner:
+  tick_s: 5
+  intervals_s:            # how often each job runs
+    gt_new_pools: 60
+    gt_trending: 300
+    ds_boosts: 120
+    ds_profiles: 120
+    refresh_tracked: 30
+  gt_new_pool_pages: 1    # 20 pools per page
+  track_hours: 6          # keep re-observing a pair this long after first seen
+  max_tracked: 300
+  volume_spike:           # m5 volume vs the h1 per-5-minute average
+    multiple: 3.0
+    min_m5_usd: 1000

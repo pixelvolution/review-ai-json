@@ -4,3 +4,6 @@ mock_wallet/*.db
 mock_wallet/*.db-wal
 mock_wallet/*.db-shm
 mock_wallet/research/data/
+solpaper/*.db
+solpaper/*.db-wal
+solpaper/*.db-shm
