@@ -25,6 +25,9 @@ from datetime import datetime, timezone
 
 from .config import dex_label
 from .db import event, now_iso
+from . import wash as wash_mod
+from .trades import store_trades, trades_as_of
+from .providers.geckoterminal import GeckoTerminal
 from .providers.jupiter import Jupiter
 from .providers.solana_rpc import SolanaRpc, TokenCheck, risky_extensions
 
@@ -107,6 +110,8 @@ class Filters:
         self.fc = cfg["filters"]
         self.rpc = SolanaRpc(http, cfg)
         self.jup = Jupiter(http, cfg)
+        self.gt = GeckoTerminal(http, cfg)
+        self.wc = cfg["wash"]
 
     # ---------------------------------------------------------------- inputs
     def latest_rows(self, pairs: list[str]):
@@ -156,6 +161,56 @@ class Filters:
                  tc.mint_authority, tc.freeze_authority, json.dumps(tc.extensions)))
 
     # ---------------------------------------------------------------- sell route
+    # ---------------------------------------------------------------- wash (phase 3)
+    def _latest_wash(self, pair: str):
+        return self.conn.execute(
+            "SELECT * FROM wash_checks WHERE pair_address = ? AND source = 'engine' AND "
+            "checked_at > ? ORDER BY id DESC LIMIT 1",
+            (pair, self.wall() - self.wc["max_age_s"])).fetchone()
+
+    def _run_wash(self, row):
+        """Fetch trades and score them as of now. Returns the stored row, or None."""
+        trades = self.gt.trades(row["pair_address"], row["base_mint"])
+        if trades is None:
+            return None
+        now = self.wall()
+        store_trades(self.conn, trades, now)
+        stored = trades_as_of(self.conn, row["pair_address"], now)
+        res = wash_mod.score(stored, now, self.wc)
+        self.conn.execute(
+            "INSERT INTO wash_checks (pair_address, checked_at, as_of, status, score, flagged, "
+            "n_trades, metrics, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'engine')",
+            (row["pair_address"], now, now, res["status"], res["score"],
+             None if res["flagged"] is None else int(res["flagged"]), res["metrics"]["n_trades"],
+             json.dumps({k: res[k] for k in ("metrics", "components", "unavailable")})))
+        return self.conn.execute("SELECT * FROM wash_checks WHERE id = last_insert_rowid()"
+                                 ).fetchone()
+
+    def _wash_decision(self, row, m: dict, may_check: bool) -> Decision | None:
+        pa = row["pair_address"]
+        w = self._latest_wash(pa)
+        fresh = w is not None and self.wall() - w["checked_at"] <= self.wc["ttl_s"]
+        if not fresh and may_check:
+            w = self._run_wash(row)
+            if w is None:
+                return Decision(pa, "skip", "wash", "check_unavailable:wash",
+                                "trade records unavailable (rate limit, outage)", m)
+        elif w is None:
+            return Decision(pa, "skip", "wash", "wash_check_pending",
+                            f"waiting for trade records ({self.wc['checks_per_pass']} per pass "
+                            f"under GeckoTerminal's keyless limit)", m)
+        info = json.loads(w["metrics"] or "{}")
+        m.update(wash_score=w["score"], wash_trades=w["n_trades"])
+        if w["status"] == "insufficient_trades":
+            return Decision(pa, "skip", "wash", "wash_insufficient_trades",
+                            f"{w['n_trades']} trades < {self.wc['min_trades']} needed to judge", m)
+        if w["flagged"]:
+            comps = ", ".join(f"{k} {v:.2f}" for k, v in sorted(
+                info.get("components", {}).items(), key=lambda kv: -kv[1]))
+            return Decision(pa, "skip", "wash", "wash_score_high",
+                            f"wash score {w['score']:.2f} >= {self.wc['threshold']} ({comps})", m)
+        return None
+
     def _latest_quote(self, mint: str):
         """Newest usable quote within max age. Rows saved before amendment A3 (no
         reference sale, ref_usd_in NULL) are never used, whether ok or failed."""
@@ -242,7 +297,7 @@ class Filters:
                 self._store_tokens(fetched)
                 tokens.update(fetched)
 
-        to_quote = []
+        to_wash, to_quote = [], []
         for row in survivors:
             pa = row["pair_address"]
             m = {"dex": dex_label(self.cfg, row["dex"]), "liquidity_usd": row["liquidity_usd"]}
@@ -254,6 +309,22 @@ class Filters:
             d = token_decision(pa, tc, self.fc, m)
             if d is not None:
                 decisions[pa] = d
+            else:
+                to_wash.append((row, tc, m))
+
+        # Wash filter (phase 3), budgeted like the sell checks: no check yet first,
+        # then the oldest; the rest reuse a recent check or wait.
+        wash_age = []
+        for row, _, _ in to_wash:
+            w = self._latest_wash(row["pair_address"])
+            wash_age.append(float("inf") if w is None else self.wall() - w["checked_at"])
+        due_w = sorted((i for i, a in enumerate(wash_age) if a > self.wc["ttl_s"]),
+                       key=lambda i: -wash_age[i])
+        chosen_w = set(due_w[:self.wc["checks_per_pass"]])
+        for i, (row, tc, m) in enumerate(to_wash):
+            d = self._wash_decision(row, m, i in chosen_w)
+            if d is not None:
+                decisions[row["pair_address"]] = d
             else:
                 to_quote.append((row, tc, m))
 

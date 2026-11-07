@@ -6,7 +6,9 @@ so the budget in config.yaml is deliberately tiny.
 
 from __future__ import annotations
 
-from .base import PairSnapshot, f, i
+from datetime import datetime
+
+from .base import PairSnapshot, TradeRecord, f, i
 
 NETWORK = "solana"
 
@@ -41,6 +43,22 @@ def parse_pool(item: dict, source: str) -> PairSnapshot:
         sells={k: i((tx.get(k) or {}).get("sells")) for k in ("m5", "h1", "h24")},
         change={k: f(chg.get(k)) for k in ("m5", "h1", "h24")},
     )
+
+
+def parse_trade(item: dict, pair_address: str, base_mint: str | None) -> TradeRecord | None:
+    a = item.get("attributes") or {}
+    ts = a.get("block_timestamp")
+    if not item.get("id") or not ts:
+        return None
+    kind = a.get("kind")
+    base_is_to = kind == "buy" if base_mint is None else a.get("to_token_address") == base_mint
+    return TradeRecord(
+        trade_id=item["id"], pair_address=pair_address,
+        t=datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp(),
+        block_number=i(a.get("block_number")), tx_hash=a.get("tx_hash"),
+        wallet=a.get("tx_from_address"), kind=kind, volume_usd=f(a.get("volume_in_usd")),
+        price_usd=f(a.get("price_to_in_usd") if base_is_to else a.get("price_from_in_usd")),
+        base_amount=f(a.get("to_token_amount") if base_is_to else a.get("from_token_amount")))
 
 
 class GeckoTerminal:
@@ -79,6 +97,15 @@ class GeckoTerminal:
             return self._pools(f"/networks/{NETWORK}/trending_pools", "gt_trending",
                                "gt_trending", {"page": 1})
         raise ValueError(job)
+
+    def trades(self, pair_address: str, base_mint: str | None) -> list[TradeRecord] | None:
+        """Last <=300 trades from the past 24 h (schema: specs/.../TRADE_SCHEMA.md)."""
+        data = self.http.get_json(self.name, "trades",
+                                  f"/networks/{NETWORK}/pools/{pair_address}/trades",
+                                  fresh_s=self.fresh.get("gt_trades", 600))
+        if data is None or not isinstance(data.get("data"), list):
+            return None
+        return [t for t in (parse_trade(x, pair_address, base_mint) for x in data["data"]) if t]
 
     def pairs(self, addresses: list[str]):
         if not addresses:

@@ -51,6 +51,27 @@ class PairQuotes(Protocol):
     def pairs(self, addresses: list[str]) -> list[PairSnapshot] | None: ...
 
 
+@dataclass
+class TradeRecord:
+    trade_id: str
+    pair_address: str
+    t: float                     # unix seconds (block time)
+    block_number: int | None
+    tx_hash: str | None
+    wallet: str | None
+    kind: str | None             # buy | sell
+    volume_usd: float | None
+    price_usd: float | None      # base token price in USD at this trade
+    base_amount: float | None
+
+
+class TradeRecords(Protocol):
+    """Trade-level records for a pool (tier 2: only for pairs that need them)."""
+    name: str
+
+    def trades(self, pair_address: str, base_mint: str | None) -> list[TradeRecord] | None: ...
+
+
 class TokenSafety(Protocol):
     """Reads token mint facts (authorities, extensions) for safety filters."""
     name: str

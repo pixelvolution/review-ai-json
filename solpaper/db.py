@@ -140,6 +140,89 @@ CREATE TABLE IF NOT EXISTS sell_quotes (
 );
 CREATE INDEX IF NOT EXISTS sell_quotes_mint ON sell_quotes(mint, checked_at);
 
+-- Phase 3: trade-level records (schema: specs/solpaper-phase3-research/TRADE_SCHEMA.md).
+CREATE TABLE IF NOT EXISTS trade_records (
+    trade_id     TEXT PRIMARY KEY,
+    pair_address TEXT NOT NULL,
+    t            REAL NOT NULL,      -- block time, unix seconds
+    block_number INTEGER,
+    tx_hash      TEXT,
+    wallet       TEXT,
+    kind         TEXT,
+    volume_usd   REAL,
+    price_usd    REAL,
+    base_amount  REAL,
+    fetched_at   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS trade_records_pair ON trade_records(pair_address, t);
+
+CREATE TABLE IF NOT EXISTS wash_checks (
+    id           INTEGER PRIMARY KEY,
+    pair_address TEXT NOT NULL,
+    checked_at   REAL NOT NULL,
+    as_of        REAL NOT NULL,      -- only trades at or before this were used
+    status       TEXT NOT NULL,      -- ok | insufficient_trades | unavailable
+    score        REAL,
+    flagged      INTEGER,
+    n_trades     INTEGER,
+    metrics      TEXT,               -- JSON: metrics, components, unavailable parts
+    source       TEXT NOT NULL       -- engine | research
+);
+CREATE INDEX IF NOT EXISTS wash_checks_pair ON wash_checks(pair_address, checked_at);
+
+CREATE TABLE IF NOT EXISTS holder_checks (
+    id                INTEGER PRIMARY KEY,
+    pair_address      TEXT NOT NULL,
+    mint              TEXT NOT NULL,
+    checked_at        REAL NOT NULL,
+    top_share         REAL,           -- top-10 holders' share of supply
+    top_share_ex_pair REAL,           -- same, excluding accounts owned by the pair itself
+    largest_share     REAL,
+    reason            TEXT            -- why NULL, when it is
+);
+
+CREATE TABLE IF NOT EXISTS research_runs (
+    run_id     INTEGER PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    seed       TEXT NOT NULL,
+    config     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS research_sample (
+    run_id       INTEGER NOT NULL,
+    pair_address TEXT NOT NULL,
+    sample_u     REAL NOT NULL,
+    PRIMARY KEY (run_id, pair_address)
+);
+CREATE TABLE IF NOT EXISTS research_results (
+    id             INTEGER PRIMARY KEY,
+    run_id         INTEGER NOT NULL,
+    pair_address   TEXT NOT NULL,
+    rule_id        TEXT NOT NULL,
+    status         TEXT NOT NULL,
+    wash_status    TEXT,
+    wash_flagged   INTEGER,
+    activity_bucket TEXT,
+    concentration_bucket TEXT,
+    entry_t        REAL,
+    exit_t         REAL,
+    exit_reason    TEXT,
+    honeypot       INTEGER,
+    net            REAL,
+    price_only_net REAL
+);
+-- Every comparison or rule variation ever tried, for multiple-testing correction.
+CREATE TABLE IF NOT EXISTS research_hypotheses (
+    id          INTEGER PRIMARY KEY,
+    run_id      INTEGER NOT NULL,
+    ts          TEXT NOT NULL,
+    rule_id     TEXT NOT NULL,
+    bucket      TEXT NOT NULL,
+    n_pairs     INTEGER NOT NULL,
+    share_positive REAL,
+    median_net  REAL,
+    verdict     TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS events (
     id      INTEGER PRIMARY KEY,
     ts      TEXT NOT NULL,

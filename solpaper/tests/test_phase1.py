@@ -289,7 +289,8 @@ def test_rpc_refuses_anything_but_read_only_methods(cfg):
         with pytest.raises(ForbiddenRpcMethod):
             http.rpc_read("solana_rpc", "rpc", m, [])
     assert sent == []
-    assert READ_ONLY_RPC_METHODS == {"getAccountInfo", "getMultipleAccounts"}
+    assert READ_ONLY_RPC_METHODS == {"getAccountInfo", "getMultipleAccounts",
+                                     "getTokenLargestAccounts", "getTokenSupply"}
 
 
 def test_export_writes_emoji_names_as_utf8(cfg, tmp_path):

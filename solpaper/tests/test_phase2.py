@@ -29,6 +29,24 @@ def mint_value(**info):
     return base
 
 
+def clean_trades(n=40, end=None, pool="P"):
+    """An organic-looking trade feed: one trade per wallet, varied sizes and gaps."""
+    import random
+    rng = random.Random(1)
+    end = end or NOW.timestamp()
+    t, data = end, []
+    for k in range(n):
+        t -= rng.uniform(5, 120)
+        data.append({"id": f"solana_1_{pool}_tx{k}_0_1", "type": "trade", "attributes": {
+            "block_number": 1, "block_timestamp": datetime.fromtimestamp(t, timezone.utc)
+            .strftime("%Y-%m-%dT%H:%M:%SZ"), "tx_hash": f"tx{k}", "tx_from_address": f"W{k}",
+            "kind": rng.choice(["buy", "sell"]), "from_token_address": SOL,
+            "to_token_address": "X", "from_token_amount": "1", "to_token_amount": "1",
+            "price_from_in_usd": "1", "price_to_in_usd": "1",
+            "volume_in_usd": str(rng.uniform(5, 500)), "is_anomalous": False}})
+    return {"data": data}
+
+
 class Net:
     """Fake network: Solana RPC answers from `mints`, Jupiter from `quote`."""
 
@@ -68,6 +86,9 @@ class Net:
             vals = [self.mints.get(m, CLEAN) for m in body["params"][0]]
             return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1,
                                              "result": {"context": {"slot": 1}, "value": vals}})
+        if req.url.host == "api.geckoterminal.com" and req.url.path.endswith("/trades"):
+            self.calls["gt"] = self.calls.get("gt", 0) + 1
+            return httpx.Response(200, json=clean_trades(pool=req.url.path.split("/")[-2]))
         if req.url.host == "lite-api.jup.ag":
             self.calls["jup"] += 1
             assert req.url.path == "/swap/v1/quote"
@@ -91,8 +112,10 @@ class Clock:
 def env(tmp_path):
     cfg = load_config()
     cfg["db_path"] = str(tmp_path / "t.db")
+    cfg["wash"]["checks_per_pass"] = 1000   # phase 2 tests: wash never budget-limits them
     conn = connect(cfg["db_path"])
     net, clk = Net(), Clock()
+    clk.t = NOW.timestamp()                  # trade times line up with the test clock
     http = Http(conn, cfg, transport=httpx.MockTransport(net), clock=clk,
                 wall=lambda: clk.t, sleep=clk.sleep)
     f = Filters(conn, http, cfg, wall=lambda: clk.t)

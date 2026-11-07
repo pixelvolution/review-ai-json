@@ -30,7 +30,8 @@ from .db import event, now_iso
 
 log = logging.getLogger("solpaper.http")
 RETRYABLE = {429, 500, 502, 503, 504}
-READ_ONLY_RPC_METHODS = frozenset({"getAccountInfo", "getMultipleAccounts"})
+READ_ONLY_RPC_METHODS = frozenset({"getAccountInfo", "getMultipleAccounts",
+                                   "getTokenLargestAccounts", "getTokenSupply"})
 
 
 class ForbiddenRpcMethod(ValueError):

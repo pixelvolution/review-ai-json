@@ -28,6 +28,7 @@ providers:
     timeout_s: 20
     buckets:
       keyless: {rpm: 10, safety: 1.0}   # no published number: stay very low
+      trades: {rpm: 4, safety: 1.0}     # trade records (phase 3), on top of the 10 above
   solana_rpc:
     base_url: https://api.mainnet-beta.solana.com
     timeout_s: 20
@@ -55,6 +56,7 @@ freshness_s:
   ds_boosts: 120
   ds_profiles: 120
   ds_pairs: 25           # < refresh interval, so each refresh gets new data
+  gt_trades: 600
 
 # ---------------------------------------------------------------- scanner
 scanner:
@@ -114,3 +116,38 @@ study:
     raydium-launchlab: other_curve
     meteora-dbc: other_curve
     bags-fm: other_curve
+
+# ---------------------------------------------------------------- wash-trade filter (phase 3)
+wash:
+  min_trades: 20                # fewer trades = insufficient_trades (never a pass)
+  round_trip_s: 600             # same wallet buys and sells within this = a round trip
+  tpw_scale: 10                 # trades per wallet at which that component maxes out
+  top3_floor: 0.3               # top-3 wallet volume share below this scores 0
+  cv_scale: 1.0                 # size/timing coefficient of variation at which regularity scores 0
+  weights: {trades_per_wallet: 1, round_trip: 1, concentration: 1, size_regularity: 1,
+            timing_regularity: 1}
+  threshold: 0.6                # initial value; the research report shows what it filters
+  checks_per_pass: 1            # GeckoTerminal's keyless budget allows ~4 trade fetches/min
+  ttl_s: 600                    # refresh a wash check after this
+  max_age_s: 1800               # decide on a check up to this old while waiting for a refresh
+
+# ---------------------------------------------------------------- fill model (phases 3-4)
+fills:
+  delay_s: 5                    # signal-to-fill delay
+  fee_rate: 0.0025              # DEX fee per leg (PumpSwap/Raydium pools ~0.25%)
+  tip_usd: 0.05                 # flat priority fee/tip per transaction
+  honeypot_rate: 0.02           # share of entries that can't be sold
+  honeypot_seed: 7
+  max_fill_wait_s: 90           # no observation within this after the fill time = a gap
+
+# ---------------------------------------------------------------- research phase (phase 3)
+research:
+  sample_size: 40
+  max_launch_age_min: 30        # first seen within this of creation = a launch
+  min_pairs: 20                 # fewer pairs in a group = insufficient data / likely noise
+  size_usd: 10
+  liquidity_collapse: 0.5       # exit if liquidity falls 50% below entry
+  rules:                        # every combination is one rule variation
+    take_profit: [0.2, 0.5, 1.0]
+    stop_loss: [0.1, 0.25]
+    time_stop_min: [15, 60]
