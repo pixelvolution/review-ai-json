@@ -9,9 +9,11 @@ Order of operations for every call:
 On any failure it returns None. Callers must treat None as "no data" and
 never invent a value in its place.
 
-This client only does GET. There is no POST helper, and nothing here can
-sign or send a transaction. Phase 2's Solana RPC reads use a separate,
-allow-listed read-only call.
+Two ways to call out, both read-only:
+  * ``get_json``: HTTP GET for REST APIs;
+  * ``rpc_read``: Solana JSON-RPC, limited to ``READ_ONLY_RPC_METHODS``. Any
+    other method, including anything that submits or simulates a transaction,
+    raises before a request is built. Nothing here can sign or send one.
 """
 
 from __future__ import annotations
@@ -28,6 +30,11 @@ from .db import event, now_iso
 
 log = logging.getLogger("solpaper.http")
 RETRYABLE = {429, 500, 502, 503, 504}
+READ_ONLY_RPC_METHODS = frozenset({"getAccountInfo", "getMultipleAccounts"})
+
+
+class ForbiddenRpcMethod(ValueError):
+    pass
 
 
 class Http:
@@ -95,10 +102,37 @@ class Http:
 
     # ------------------------------------------------------------------ get
     def get_json(self, provider: str, bucket: str, path: str, params: dict | None = None,
-                 fresh_s: float = 0):
-        """GET ``path`` from ``provider``. Returns parsed JSON or None."""
+                 fresh_s: float = 0, answer_statuses: frozenset = frozenset()):
+        """GET ``path`` from ``provider``. Returns parsed JSON or None.
+
+        ``answer_statuses``: non-200 codes that are answers, not failures (e.g.
+        Jupiter's 400 "token not tradable"). Their body is returned with an
+        ``_http_status`` key; they cause no backoff and no gap.
+        """
         q = ("?" + urlencode(sorted(params.items()))) if params else ""
-        key = f"{provider}|{path}{q}"
+        url = f"{self.cfg['providers'][provider]['base_url']}{path}{q}"
+        return self._fetch(provider, bucket, f"{provider}|{path}{q}", url, fresh_s,
+                           lambda c: c.get(path, params=params), answer_statuses)
+
+    def rpc_read(self, provider: str, bucket: str, method: str, params: list,
+                 fresh_s: float = 0):
+        """Read-only Solana JSON-RPC call. Returns ``result`` or None."""
+        if method not in READ_ONLY_RPC_METHODS:
+            raise ForbiddenRpcMethod(f"{method} is not a read-only method this simulator allows")
+        payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+        key = f"{provider}|rpc|{json.dumps([method, params], sort_keys=True)}"
+        url = f"{self.cfg['providers'][provider]['base_url']} rpc:{method}"
+        data = self._fetch(provider, bucket, key, url, fresh_s,
+                           lambda c: c.post("", json=payload))
+        if data is None:
+            return None
+        if "error" in data:
+            event(self.conn, "rpc_error", f"{provider} {method}: {data['error']}",
+                  {"method": method})
+            return None
+        return data.get("result")
+
+    def _fetch(self, provider, bucket, key, url, fresh_s, send, answer_statuses=frozenset()):
         if fresh_s > 0:
             hit = self._cache_get(key, fresh_s)
             if hit is not None:
@@ -107,12 +141,11 @@ class Http:
         if bo.blocked:
             return None
         self.pacers[(provider, bucket)].wait()
-        url = f"{self.cfg['providers'][provider]['base_url']}{path}{q}"
         t0 = time.monotonic()
         status = body = err = None
         headers = {}
         try:
-            r = self.clients[provider].get(path, params=params)
+            r = send(self.clients[provider])
             status, body, headers = r.status_code, r.text, r.headers
         except httpx.HTTPError as e:
             err = f"{type(e).__name__}: {e}"
@@ -142,6 +175,15 @@ class Http:
                 bo.success()
                 self._gap_success(provider)
                 return data
+        if status in answer_statuses:
+            try:
+                data = json.loads(body)
+            except json.JSONDecodeError:
+                data = {"raw": body}
+            bo.success()
+            self._gap_success(provider)
+            self.last_from_cache = False
+            return {**(data if isinstance(data, dict) else {"data": data}), "_http_status": status}
         if status in RETRYABLE or err:
             ra = headers.get("retry-after")
             try:
@@ -150,8 +192,8 @@ class Http:
                 ra = None
             delay = bo.failure(ra)
             self._gap_failure(provider, status, err)
-            log.warning("%s %s -> %s; backing off %.0fs", provider, path, status or err, delay)
+            log.warning("%s %s -> %s; backing off %.0fs", provider, url, status or err, delay)
         else:
-            event(self.conn, "http_error", f"{provider} {path} -> {status}",
+            event(self.conn, "http_error", f"{provider} {url} -> {status}",
                   {"url": url, "status": status})
         return None

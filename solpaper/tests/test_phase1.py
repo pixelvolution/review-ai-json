@@ -258,14 +258,16 @@ def test_each_job_is_timed_from_its_own_start(cfg):
 FORBIDDEN = [
     r"\bsolders\b", r"\bsolana\.(rpc|transaction|keypair)", r"\bnacl\b", r"\bbase58\b",
     r"Keypair", r"sendTransaction", r"sendRawTransaction", r"signTransaction",
+    r"simulateTransaction", r"requestAirdrop", r"/swap\b(?!/v1/quote)", r"swap-instructions",
     r"private[_ ]?key", r"secret[_ ]?key", r"seed[_ ]?phrase", r"mnemonic",
-    r"\.post\(", r"method=['\"]POST",
+    r"method=['\"]POST",
 ]
 
 
 def test_no_code_path_can_sign_or_send_a_transaction():
-    """The package has no signing libraries, key handling or write calls."""
+    """No signing libraries, key handling, transaction or swap-building calls."""
     offenders = []
+    posts = []
     for f in PKG.rglob("*.py"):
         if "tests" in f.parts:
             continue
@@ -273,7 +275,21 @@ def test_no_code_path_can_sign_or_send_a_transaction():
         for pat in FORBIDDEN:
             if re.search(pat, src, re.IGNORECASE):
                 offenders.append(f"{f.relative_to(PKG)}: {pat}")
+        posts += [f"{f.relative_to(PKG)}" for _ in re.finditer(r"\.post\(", src)]
     assert offenders == []
+    # Exactly one POST in the package: the allow-listed read-only RPC call.
+    assert posts == ["client.py"]
+
+
+def test_rpc_refuses_anything_but_read_only_methods(cfg):
+    from solpaper.client import READ_ONLY_RPC_METHODS, ForbiddenRpcMethod
+    sent = []
+    conn, http, clk = make_http(cfg, lambda r: sent.append(r) or httpx.Response(200, json={}))
+    for m in ("sendTransaction", "simulateTransaction", "requestAirdrop", "getBalance"):
+        with pytest.raises(ForbiddenRpcMethod):
+            http.rpc_read("solana_rpc", "rpc", m, [])
+    assert sent == []
+    assert READ_ONLY_RPC_METHODS == {"getAccountInfo", "getMultipleAccounts"}
 
 
 def test_export_writes_emoji_names_as_utf8(cfg, tmp_path):

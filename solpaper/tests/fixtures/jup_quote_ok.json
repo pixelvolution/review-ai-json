@@ -1,0 +1,42 @@
+{
+ "inputMint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+ "inAmount": "357142857142",
+ "outputMint": "So11111111111111111111111111111111111111112",
+ "outAmount": "111414028",
+ "otherAmountThreshold": "110299888",
+ "swapMode": "ExactIn",
+ "slippageBps": 100,
+ "platformFee": null,
+ "priceImpactPct": "0.000651544082516156730363307",
+ "routePlan": [
+  {
+   "swapInfo": {
+    "ammKey": "5zpyutJu9ee6jFymDGoK7F6S5Kczqtc9FomP3ueKuyA9",
+    "label": "Whirlpool",
+    "inputMint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+    "outputMint": "So11111111111111111111111111111111111111112",
+    "inAmount": "357142857142",
+    "outAmount": "111414028",
+    "updateContextSlot": "466666195"
+   },
+   "percent": 100,
+   "bps": null
+  }
+ ],
+ "contextSlot": 466666210,
+ "timeTaken": 0.003769823,
+ "swapUsdValue": "9.8955979657790968095548",
+ "mostReliableAmmsQuoteReport": {
+  "info": {
+   "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE": "111362297",
+   "8B8KYcFPMjZyDtJ1BENsqhW3fEmMrB4ekoEQJiM6z3SC": "TesseraV has not received update within slot cutoff, delta: 10668737, cutoff: 20"
+  }
+ },
+ "longtailMarketQuoteReport": null,
+ "useIncurredSlippageForQuoting": null,
+ "useRewards": null,
+ "otherRoutePlans": null,
+ "loadedLongtailToken": false,
+ "instructionVersion": null,
+ "transactionVersion": 0
+}

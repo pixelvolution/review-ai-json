@@ -134,6 +134,9 @@ class Scanner:
     def run_job(self, job: str) -> int | None:
         if job == "refresh_tracked":
             return self.refresh_tracked()
+        if job == "filter":
+            from .filters import evaluate_tracked
+            return evaluate_tracked(self)
         src = self.gt if job.startswith("gt_") else self.ds
         snaps = src.discover(job)
         return None if snaps is None else self.record(snaps)
@@ -151,7 +154,8 @@ class Scanner:
                     event(self.conn, "job_error", f"{job}: {type(e).__name__}: {e}")
                     continue
                 log.info("%-16s %s in %.1fs", job,
-                         "no data (gap)" if n is None else f"{n} new observations",
+                         "no data (gap)" if n is None else
+                         f"{n} pairs evaluated" if job == "filter" else f"{n} new observations",
                          time.monotonic() - t0)
 
     def run(self, minutes: float | None = None):

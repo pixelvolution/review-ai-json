@@ -1,7 +1,7 @@
 # SPEC: solpaper Phase 2: basic filters + skip-reason stats
 **Feature slug:** solpaper-phase2-filters
 **Date:** 2026-11-07
-**Status:** AWAITING APPROVAL
+**Status:** APPROVED 2026-11-07, with one amendment before the build: the sell-route check (FR-14, EC-07) was added at the user's request ("Do sell route"). Open Question 1 took its default (LP lock `not_checked`).
 **Requirement source:** Build prompt, "ENGINE DETAILS > Basic filter" and "BUILD ORDER 2"; user decision 2026-11-07: option 3 (skip coins without a liquidity figure for now).
 
 ---
@@ -38,6 +38,7 @@ shows how many pairs were skipped for each reason.
 | FR-11 | Token checks are cached in `token_checks` per mint. A revoked authority is cached for good (it can't be re-enabled). Any other result is re-checked after `token_check_ttl_s`. | Test: second evaluation within TTL makes no RPC request. |
 | FR-12 | Skip-reason stats: `python -m solpaper.stats` adds a "Filters" section showing pairs passed and skipped, and each pair's **current** reason with count and %. | Test on a seeded DB. |
 | FR-13 | All thresholds live in `config.yaml` under `filters:`. | Code review: no threshold literals in `filters.py`. |
+| FR-14 | **Sell-route check** (amendment): for pairs that pass tier 1 and the token checks, ask Jupiter's read-only quote API (`GET /swap/v1/quote`) to sell `sell_check_usd` worth of the base token into the pair's quote token. Skip `no_sell_route` when Jupiter answers that the token isn't tradable or has no route. Skip `sell_impact_too_high` when `priceImpactPct` exceeds `max_sell_impact`. Every quote is stored in `sell_quotes`: amount in, amount out, price impact, route labels, and the effective sell price vs the pool price. Quotes are cached per mint for `sell_quote_ttl_s`. | Tests with recorded quote and no-route responses. |
 
 ---
 
@@ -50,6 +51,7 @@ shows how many pairs were skipped for each reason.
 | EC-03 | Pair moves from skip to pass, e.g. liquidity grows past the floor | New `filter_passes` row. The earlier skip rows stay as history. |
 | EC-04 | Pair passes, then later fails, e.g. liquidity collapses | New `skips` row with the new reason. Phase 4's forced exit handles any open position. |
 | EC-05 | Same coin appears under two DEX labels (`pump-fun` / `pumpfun`) | DEX names are normalized to one label before any rule or stat uses them. |
+| EC-07 | Jupiter returns HTTP 400 with an error code (e.g. `TOKEN_NOT_TRADABLE`) | That is an answer, not an outage: skip `no_sell_route`. Only 429/5xx/network errors count as `check_unavailable:sell_route`. |
 | EC-06 | Quote token is another memecoin (e.g. `X / SPCX`, `sink / PUMP`) | Skip `quote_not_allowed` (allowed: SOL, USDC by default). |
 
 ---
@@ -57,7 +59,6 @@ shows how many pairs were skipped for each reason.
 ## Out of Scope
 - LP lock/burn verification: no data source yet. RugCheck or GoPlus could
   supply it, but each is a new provider (see Open Questions).
-- A sell-route check through a DEX aggregator quote: a new provider (see Open Questions).
 - Re-checking a pair's token after it passes, beyond the TTL rule.
 
 ---
@@ -79,13 +80,19 @@ New tables:
 - `skips(id, pair_address, ts, stage, reason, detail, metrics_json)`. Stage is `tier1` or `token`.
 - `filter_passes(id, pair_address, ts, metrics_json)`.
 - `token_checks(mint, checked_at, mint_authority, freeze_authority, program, extensions_json, ok, reason)`.
+- `sell_quotes(id, pair_address, mint, ts, usd_in, amount_in, out_amount, out_mint, price_impact, effective_vs_pool, routes, ok, reason)`.
+- `filter_state(pair_address, outcome, reason, updated_at)`: current outcome, used to log changes only.
 
 New provider interface `TokenSafety.check(mints) -> dict[mint, TokenCheck] | None`,
 implemented by `providers/solana_rpc.py`.
 
 Config (`filters:`): `liquidity_floor_usd`, `min_age_min`, `max_age_hours`,
 `max_reading_age_s`, `allowed_quotes`, `risky_extensions`, `token_check_ttl_s`,
-`interval_s`.
+`sell_check_usd`, `max_sell_impact`, `sell_quote_ttl_s`, `interval_s`.
+
+Providers (limits verified 2026-11-07):
+- Solana RPC (`getMultipleAccounts`, up to 100 mints per call). The response headers report method/RPS limits.
+- Jupiter quote API (`lite-api.jup.ag`, keyless). The response headers report 5 requests per ~10 s window, counted per IP.
 
 ---
 
@@ -107,6 +114,8 @@ Config (`filters:`): `liquidity_floor_usd`, `min_age_min`, `max_age_hours`,
 1. **LP lock/burn and honeypot data:** add one free token-risk provider (RugCheck
    or GoPlus), which needs its host allowed and its limits verified, or leave
    `not_checked` until Phase 3? Default if unanswered: leave `not_checked`.
-2. **Sell-route check:** add a read-only aggregator quote (e.g. Jupiter) to
-   confirm a sell route exists and measure price impact at our size? That would
-   also feed Phase 4's fill model. Default if unanswered: defer to Phase 4.
+2. ~~Sell-route check~~: resolved, added as FR-14.
+3. **Finding during the build:** Jupiter also quotes pump.fun bonding-curve coins
+   (route label `Pump.fun`). A sell quote could stand in for the missing
+   liquidity figure and make those coins eligible. Not built; this needs a
+   decision after Phase 3.

@@ -54,6 +54,23 @@ def main() -> int:
         print(f"{g['provider']}: {g['started_at']} -> {g['ended_at'] or 'ongoing'}  "
               f"{g['attempts']} failed attempts, last {g['last_status'] or g['last_error']}")
 
+    print("\n== Filters (each pair's current decision)")
+    total = one("SELECT COUNT(*) FROM filter_state")
+    if not total:
+        print("no decisions yet (the filter job runs every 30s)")
+    else:
+        passed = one("SELECT COUNT(*) FROM filter_state WHERE outcome = 'pass'")
+        print(f"pairs evaluated: {total}   passed: {passed} ({100 * passed / total:.0f}%)   "
+              f"skipped: {total - passed} ({100 * (total - passed) / total:.0f}%)")
+        for r in q("SELECT reason, COUNT(*) n FROM filter_state WHERE outcome = 'skip' "
+                   "GROUP BY reason ORDER BY n DESC"):
+            print(f"  {r['reason']:32s} {r['n']:5d}  {100 * r['n'] / total:5.1f}%")
+        sq = q("SELECT COUNT(*) n, SUM(ok) ok, AVG(CASE WHEN ok THEN price_impact END) imp, "
+               "AVG(CASE WHEN ok THEN effective_vs_pool END) eff FROM sell_quotes")[0]
+        if sq["n"]:
+            print(f"sell-route quotes: {sq['n']} ({sq['ok']} had a route)   avg price impact "
+                  f"{(sq['imp'] or 0):.2%}   avg sell price vs pool {(sq['eff'] or 0):+.2%}")
+
     print("\n== Sample of captured pairs (latest observation each)")
     rows = q("""SELECT p.name, p.dex, p.pair_created_at, s.liquidity_usd, s.vol_m5, s.vol_h1,
                 s.buys_h1, s.sells_h1, s.price_usd, s.source, s.data_age_s, p.pair_address,

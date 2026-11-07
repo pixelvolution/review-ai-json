@@ -32,7 +32,14 @@ providers:
     base_url: https://api.mainnet-beta.solana.com
     timeout_s: 20
     buckets:
-      rpc: {rpm: 120, safety: 0.5}      # phase 2: mint/freeze authority checks
+      rpc: {rpm: 120, safety: 0.5}      # mint/freeze/extension reads, 100 mints per call
+  jupiter:
+    # lite-api.jup.ag is keyless; its response headers report 5 requests per
+    # ~10 s window, counted per IP (checked 2026-11-07).
+    base_url: https://lite-api.jup.ag
+    timeout_s: 20
+    buckets:
+      quote: {rpm: 30, safety: 0.4}     # 12/min
 
 backoff:
   base_s: 2
@@ -57,9 +64,28 @@ scanner:
     ds_boosts: 120
     ds_profiles: 120
     refresh_tracked: 30
+    filter: 30
   gt_new_pool_pages: 1    # 20 pools per page
   track_hours: 6          # keep re-observing a pair this long after first seen
   max_tracked: 300
   volume_spike:           # m5 volume vs the h1 per-5-minute average
     multiple: 3.0
     min_m5_usd: 1000
+
+# ---------------------------------------------------------------- filters (phase 2)
+filters:
+  liquidity_floor_usd: 10000
+  min_age_min: 2
+  max_age_hours: 6
+  max_reading_age_s: 120        # newest genuinely new reading must be this fresh
+  allowed_quotes:               # quote token must be one of these
+    So11111111111111111111111111111111111111112: SOL
+    EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: USDC
+  risky_extensions: [transferHook, permanentDelegate, nonTransferable, pausableConfig,
+                     defaultAccountState, transferFeeConfig]
+  token_check_ttl_s: 600        # re-check authorities that weren't revoked
+  sell_check_usd: 10            # quote selling this much (default position size)
+  max_sell_impact: 0.03         # 3%
+  sell_quote_ttl_s: 120
+  dex_aliases:                  # providers label the same venue differently
+    pumpfun: pump-fun

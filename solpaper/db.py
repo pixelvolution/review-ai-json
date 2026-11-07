@@ -80,6 +80,61 @@ CREATE TABLE IF NOT EXISTS data_gaps (
     last_error  TEXT
 );
 
+-- Phase 2: filter decisions. Rows are written when a pair's outcome changes.
+CREATE TABLE IF NOT EXISTS skips (
+    id           INTEGER PRIMARY KEY,
+    pair_address TEXT NOT NULL,
+    ts           TEXT NOT NULL,
+    stage        TEXT NOT NULL,     -- tier1 | token | sell_route
+    reason       TEXT NOT NULL,     -- machine code, e.g. liquidity_below_floor
+    detail       TEXT NOT NULL,     -- human-readable, with the numbers used
+    metrics      TEXT               -- JSON
+);
+CREATE INDEX IF NOT EXISTS skips_pair ON skips(pair_address);
+
+CREATE TABLE IF NOT EXISTS filter_passes (
+    id           INTEGER PRIMARY KEY,
+    pair_address TEXT NOT NULL,
+    ts           TEXT NOT NULL,
+    metrics      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS filter_state (
+    pair_address TEXT PRIMARY KEY,
+    outcome      TEXT NOT NULL,     -- pass | skip
+    reason       TEXT,
+    updated_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS token_checks (
+    mint             TEXT PRIMARY KEY,
+    checked_at       REAL NOT NULL,  -- unix seconds
+    readable         INTEGER NOT NULL,
+    program          TEXT,
+    decimals         INTEGER,
+    mint_authority   TEXT,
+    freeze_authority TEXT,
+    extensions       TEXT            -- JSON: name -> state
+);
+
+CREATE TABLE IF NOT EXISTS sell_quotes (
+    id                INTEGER PRIMARY KEY,
+    pair_address      TEXT NOT NULL,
+    mint              TEXT NOT NULL,
+    ts                TEXT NOT NULL,
+    checked_at        REAL NOT NULL,
+    usd_in            REAL NOT NULL,
+    amount_in         INTEGER,
+    out_mint          TEXT,
+    out_amount        INTEGER,
+    price_impact      REAL,
+    effective_vs_pool REAL,
+    routes            TEXT,
+    ok                INTEGER NOT NULL,
+    reason            TEXT
+);
+CREATE INDEX IF NOT EXISTS sell_quotes_mint ON sell_quotes(mint, checked_at);
+
 CREATE TABLE IF NOT EXISTS events (
     id      INTEGER PRIMARY KEY,
     ts      TEXT NOT NULL,

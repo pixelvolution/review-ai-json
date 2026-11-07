@@ -1,0 +1,115 @@
+{
+ "jsonrpc": "2.0",
+ "result": {
+  "context": {
+   "apiVersion": "4.4.0",
+   "slot": 466665361
+  },
+  "value": [
+   {
+    "data": {
+     "parsed": {
+      "info": {
+       "decimals": 9,
+       "extensions": [
+        {
+         "extension": "metadataPointer",
+         "state": {
+          "authority": null,
+          "metadataAddress": "4ub9JqwofZuXsJpBDmZL25aAYVdwqvgqfmRhdujRmoon"
+         }
+        },
+        {
+         "extension": "tokenMetadata",
+         "state": {
+          "additionalMetadata": [],
+          "mint": "4ub9JqwofZuXsJpBDmZL25aAYVdwqvgqfmRhdujRmoon",
+          "name": "Bitcoin Door",
+          "symbol": "BTCEXIT",
+          "updateAuthority": null,
+          "uri": "https://ipfs.io/ipfs/QmVwxjwPjbFf2EjEBM3JQME3sPWybD5TfcyAw5QMp7gSje"
+         }
+        }
+       ],
+       "freezeAuthority": null,
+       "isInitialized": true,
+       "mintAuthority": null,
+       "supply": "185685358398"
+      },
+      "type": "mint"
+     },
+     "program": "spl-token-2022",
+     "space": 404
+    },
+    "executable": false,
+    "lamports": 2702560,
+    "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "rentEpoch": 18446744073709551615,
+    "space": 404
+   },
+   {
+    "data": {
+     "parsed": {
+      "info": {
+       "decimals": 6,
+       "extensions": [
+        {
+         "extension": "metadataPointer",
+         "state": {
+          "authority": null,
+          "metadataAddress": "BdouwEr3mwXkT6S6EmHNCjn9oEtykRKCKiUSTRF9pump"
+         }
+        },
+        {
+         "extension": "tokenMetadata",
+         "state": {
+          "additionalMetadata": [],
+          "mint": "BdouwEr3mwXkT6S6EmHNCjn9oEtykRKCKiUSTRF9pump",
+          "name": "The Nvidia Spy",
+          "symbol": "Alice",
+          "updateAuthority": null,
+          "uri": "https://metadata.j7tracker.io/metadata/bcc1bbf8121640b6.json"
+         }
+        }
+       ],
+       "freezeAuthority": null,
+       "isInitialized": true,
+       "mintAuthority": null,
+       "supply": "959910447964554"
+      },
+      "type": "mint"
+     },
+     "program": "spl-token-2022",
+     "space": 397
+    },
+    "executable": false,
+    "lamports": 2667000,
+    "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "rentEpoch": 18446744073709551615,
+    "space": 397
+   },
+   {
+    "data": {
+     "parsed": {
+      "info": {
+       "decimals": 6,
+       "freezeAuthority": "7dGbd2QZcCKcTndnHcTL8q7SMVXAkp688NTQYwrRCrar",
+       "isInitialized": true,
+       "mintAuthority": "BJE5MMbqXjVwjAF7oxwPYXnTXDyspzZyt4vwenNw5ruG",
+       "supply": "8788889093863646"
+      },
+      "type": "mint"
+     },
+     "program": "spl-token",
+     "space": 82
+    },
+    "executable": false,
+    "lamports": 558873655207,
+    "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "rentEpoch": 18446744073709551615,
+    "space": 82
+   }
+  ]
+ },
+ "id": 1
+}
