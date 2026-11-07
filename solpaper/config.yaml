@@ -33,6 +33,7 @@ providers:
     timeout_s: 20
     buckets:
       rpc: {rpm: 120, safety: 0.5}      # mint/freeze/extension reads, 100 mints per call
+      study: {rpm: 60, safety: 0.5}     # launch study's own share (curve reads)
   jupiter:
     # lite-api.jup.ag is keyless; its response headers report 5 requests per
     # ~10 s window, counted per IP (checked 2026-11-07).
@@ -95,3 +96,19 @@ filters:
 # uses the label on the right.
 dex_aliases:
   pumpfun: pump-fun
+
+# ---------------------------------------------------------------- launch outcome study
+# Runs as its own process: python -m solpaper.study run
+study:
+  sample_rate: 0.10             # share of launches sampled for wallet-level data
+  windows_min: [5, 15, 60]      # early-feature windows after first-seen
+  lead_s: 20                    # capture this long before a window's cutoff
+  max_launch_age_min: 30        # older than this at first-seen = not a launch
+  curve_price_tol: 0.05         # curve price vs scanner price, for curve_consistent
+  tick_s: 5
+  pump_program: 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P
+  sources:                      # normalized DEX label -> cohort source (default: pool)
+    pump-fun: pumpfun_curve
+    raydium-launchlab: other_curve
+    meteora-dbc: other_curve
+    bags-fm: other_curve
