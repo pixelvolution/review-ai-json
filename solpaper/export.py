@@ -45,6 +45,22 @@ QUERIES = {
          "q.pair_address, q.mint FROM sell_quotes q JOIN pairs p USING (pair_address) ORDER BY q.id"),
         ("token_checks.csv", ["token_checks"], "SELECT * FROM token_checks ORDER BY checked_at"),
     ],
+    "trading": [
+        ("trades.csv", ["trades"],
+         "SELECT id, name, status, entry_reason, notional, entry_signal_t, entry_fill_t, "
+         "entry_delay_s, entry_mid, entry_price, entry_impact, entry_liquidity, honeypot, "
+         "exit_reason, exit_signal_t, exit_fill_t, exit_delay_s, exit_mid, exit_price, exit_impact, "
+         "fees, tips, proceeds, pnl, note, pair_address, wallet_run_id FROM trades ORDER BY id"),
+        ("signals.csv", ["signals"], "SELECT * FROM signals ORDER BY id"),
+        ("wallet_runs.csv", ["wallet_runs"],
+         "SELECT run_id, started_at, status, start_balance / 1e6 AS start_balance, "
+         "balance / 1e6 AS balance, vault / 1e6 AS vault, peak_equity / 1e6 AS peak_equity, "
+         "max_drawdown, cooked_at, cooked_reason FROM wallet_runs ORDER BY run_id"),
+        ("wallet_snapshots.csv", ["wallet_snapshots"],
+         "SELECT run_id, ts, trigger, balance / 1e6 AS balance, vault / 1e6 AS vault, "
+         "open_position_value / 1e6 AS open_position_value, equity / 1e6 AS equity, "
+         "peak_equity / 1e6 AS peak_equity, drawdown FROM wallet_snapshots ORDER BY snapshot_id"),
+    ],
     "study": [
         ("study_cohort.csv", ["launch_cohort", "pairs"],
          "SELECT c.first_seen_at, p.name, c.source, c.dex, c.status, c.pair_created_at, "
@@ -106,6 +122,10 @@ FILE_NOTES = {
                           "the 'missing' column says why any field is empty",
     "study_gaps.csv": "study tasks that couldn't be captured on time (never filled in with guesses)",
     "study_runs.csv": "study process runs, their sampling seed and config",
+    "trades.csv": "paper trades: entry/exit signal and fill times, delays, impact, fees, tips, P&L",
+    "signals.csv": "every entry and exit decision with its reason",
+    "wallet_runs.csv": "mock-wallet runs (lives): balance, vault, peak, drawdown, cooked cause",
+    "wallet_snapshots.csv": "wallet state after every open and close",
 }
 
 

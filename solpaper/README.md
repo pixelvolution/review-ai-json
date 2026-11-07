@@ -17,12 +17,21 @@ Built in phases, each reviewed before the next.
 | Phase | What | State |
 |---|---|---|
 | 1 | Scanner, logger, cache, request budget | done |
-| 2 | Basic filters, skip-reason stats | next |
-| 3 | Research: trade records, wash filter, buckets, replay | |
-| 4 | Mock wallet, paper executor, risk | |
+| 2 | Basic filters, skip-reason stats | done |
+| 3 | Research: trade records, wash filter, buckets, replay | done |
+| 4 | Mock wallet, paper executor, risk | done |
 | 5 | MCP server, dashboard | |
 | 6 | Suggestion and validation pipeline | |
 | 7 | Morning report, systemd units, full README | |
+
+## Commands
+
+    python -m solpaper.scanner              # scanner + filters + paper trading (until stopped)
+    python -m solpaper.study run            # Launch Outcome Study, in a second window
+    python -m solpaper.stats                # capture, filters, paper-trading summary
+    python -m solpaper.research             # phase 3 research report (fetches trade records)
+    python -m solpaper.export               # CSVs + README.txt into .\exports
+    python reset.py                         # start a new mock-wallet run after a cook
 
 ## Phase 1: run the scanner
 

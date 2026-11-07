@@ -81,6 +81,34 @@ def main() -> int:
                   f"{imp}   avg sell price vs pool {eff}   Jupiter's figure disagreed: "
                   f"{sq['dis'] or 0}")
 
+    print("\n== Paper trading (simulated money only)")
+    have = {r[0] for r in q("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "wallet_runs" not in have or not one("SELECT COUNT(*) FROM wallet_runs"):
+        print("no wallet run yet (the trade job creates run 1 on its first tick)")
+    else:
+        w = q("SELECT * FROM wallet_runs ORDER BY run_id DESC LIMIT 1")[0]
+        print(f"run #{w['run_id']} {w['status'].upper()}   start ${w['start_balance'] / 1e6:,.2f}   "
+              f"balance ${w['balance'] / 1e6:,.2f}   vault ${w['vault'] / 1e6:,.2f}   "
+              f"peak ${w['peak_equity'] / 1e6:,.2f}   worst drawdown {float(w['max_drawdown']):.1%}"
+              + (f"\n  cooked: {w['cooked_reason']}" if w["status"] == "cooked" else ""))
+        t = q("""SELECT COUNT(*) n, SUM(status IN ('closed','failed_sell')) done,
+                 SUM(status IN ('open','pending_exit','pending_entry')) live,
+                 SUM(status = 'failed_sell') hp, SUM(status = 'entry_failed') ef,
+                 SUM(CASE WHEN status IN ('closed','failed_sell') THEN pnl END) pnl,
+                 SUM(CASE WHEN status IN ('closed','failed_sell') AND pnl > 0 THEN 1 ELSE 0 END) wins,
+                 AVG(entry_impact) ei, AVG(exit_impact) xi, SUM(fees) fees, SUM(tips) tips
+                 FROM trades""")[0]
+        if t["n"]:
+            done = t["done"] or 0
+            print(f"trades: {t['n']} ({done} closed, {t['live'] or 0} open/pending, "
+                  f"{t['hp'] or 0} failed sells, {t['ef'] or 0} entries that couldn't fill)")
+            if done:
+                print(f"net P&L after all costs: ${t['pnl']:+.2f}   win rate {t['wins'] / done:.0%}   "
+                      f"avg impact in/out {t['ei'] or 0:.2%}/{t['xi'] or 0:.2%}   "
+                      f"fees ${t['fees'] or 0:.2f}   tips ${t['tips'] or 0:.2f}")
+                if done < 50:
+                    print(f"  ({done} trades is far too few to judge anything.)")
+
     print("\n== Sample of captured pairs (latest observation each)")
     rows = q("""SELECT p.name, p.dex, p.pair_created_at, s.liquidity_usd, s.vol_m5, s.vol_h1,
                 s.buys_h1, s.sells_h1, s.price_usd, s.source, s.data_age_s, p.pair_address,
