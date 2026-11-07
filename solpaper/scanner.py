@@ -131,10 +131,10 @@ class Scanner:
         return None if snaps is None else self.record(snaps)
 
     def tick(self):
-        now = self.clock()
         for job, every in self.cfg["scanner"]["intervals_s"].items():
-            if now >= self.next_run.get(job, 0):
-                self.next_run[job] = now + every
+            start = self.clock()  # each job is timed from its own start, not the pass's
+            if start >= self.next_run.get(job, 0):
+                self.next_run[job] = start + every
                 t0 = time.monotonic()
                 try:
                     n = self.run_job(job)
@@ -142,7 +142,8 @@ class Scanner:
                     log.exception("job %s failed", job)
                     event(self.conn, "job_error", f"{job}: {type(e).__name__}: {e}")
                     continue
-                log.info("%-16s %s in %.1fs", job, "no data (gap)" if n is None else f"{n} snaps",
+                log.info("%-16s %s in %.1fs", job,
+                         "no data (gap)" if n is None else f"{n} new observations",
                          time.monotonic() - t0)
 
     def run(self, minutes: float | None = None):

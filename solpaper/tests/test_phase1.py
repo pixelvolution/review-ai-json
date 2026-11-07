@@ -202,6 +202,27 @@ def test_scanner_logs_every_pair_and_writes_nothing_during_a_gap(cfg):
     assert conn.execute("SELECT COUNT(*) FROM data_gaps").fetchone()[0] == 1
 
 
+def test_each_job_is_timed_from_its_own_start(cfg):
+    clk = FakeClock()
+    sc = Scanner(cfg, conn=connect(cfg["db_path"]), http=None, clock=clk)
+    ran = []
+
+    def slow_job(job):  # every job takes 4 seconds
+        ran.append((job, clk.t))
+        clk.t += 4
+        return 0
+
+    sc.run_job = slow_job
+    sc.tick()
+    starts = dict(ran)
+    for job, every in cfg["scanner"]["intervals_s"].items():
+        assert sc.next_run[job] == starts[job] + every
+    # The last job in the pass started 16s after the first; its next run is
+    # a full interval after its own start, so the 25s quote cache has expired.
+    last = list(cfg["scanner"]["intervals_s"])[-1]
+    assert sc.next_run[last] - starts[last] > cfg["freshness_s"]["ds_pairs"]
+
+
 # ------------------------------------------------------------------ safety
 
 FORBIDDEN = [

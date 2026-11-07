@@ -34,6 +34,7 @@
 | 2026-11-07 | Wallet crashed on prices passed as numpy numbers | `Decimal(repr(np.float64))` parses `"np.float64(0.5)"`, which isn't a number | `D()` converts with `repr(float(value))` | Regression test `test_accepts_numpy_prices` |
 | 2026-11-07 | MCP suggestions written to the wrong database | MCP stdio clients start the server with a minimal environment, so `MOCK_WALLET_*` variables weren't inherited | Pass `env` in the client config | Documented in `mock_wallet/README.md` |
 | 2026-11-07 | Scanner recorded cached responses as new observations | The pair-quote cache window (30s) equalled the refresh interval (30s) | Snapshots carry `from_cache` and are skipped; cache window 25s | Test asserts a cached response adds no rows |
+| 2026-11-07 | Scanner logged `refresh_tracked 0 snaps` about one cycle in three (seen on the first local Windows run) | Each job's next run was timed from the start of the loop pass, so a job late in the pass came back ~20s after it actually ran, inside its own 25s cache window. The cached result was correctly not re-recorded, so no data was wrong, but a cycle was skipped. | Each job is now timed from its own start | Test `test_each_job_is_timed_from_its_own_start` |
 | 2026-11-07 | GeckoTerminal 429 on the first call of each run | Keyless access is rate-limited per IP, shared with everyone on the same IP | Backoff + gap logging work as designed | Consider one free Demo key (100 calls/min) |
 
 ## Environment Notes
