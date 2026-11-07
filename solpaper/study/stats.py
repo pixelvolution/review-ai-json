@@ -58,6 +58,25 @@ def report(conn) -> str:
     for r in q("SELECT reason, COUNT(*) k FROM study_gaps GROUP BY reason ORDER BY k DESC"):
         out.append(f"      gap: {r['reason']} x{r['k']}")
 
+    out.append("\n== Outcomes by checkpoint (labels: dead / flopped / survived / graduated / unknown)")
+    cps = q("""SELECT o.checkpoint, c.source, o.label, COUNT(*) k FROM launch_outcomes o
+               JOIN launch_cohort c USING (pair_address) GROUP BY 1, 2, 3""")
+    if not cps:
+        out.append("  none yet (the first checkpoint is 1 hour after a launch is first seen)")
+    table: dict = {}
+    for r in cps:
+        table.setdefault((r["checkpoint"], r["source"]), {})[r["label"]] = r["k"]
+    order = {"1h": 0, "6h": 1, "24h": 2, "72h": 3, "7d": 4}
+    for (cp, src), labels in sorted(table.items(), key=lambda kv: (order.get(kv[0][0], 9), kv[0][1])):
+        n = sum(labels.values())
+        parts = "  ".join(f"{lab} {labels.get(lab, 0)} ({labels.get(lab, 0) / n:.0%})"
+                          for lab in ("dead", "flopped", "survived", "graduated", "unknown"))
+        out.append(f"  {cp:>3} {src:13s} n={n:<5d} {parts}")
+    og = one("SELECT COUNT(*) FROM study_gaps WHERE task = 'outcome'")
+    on = one("SELECT COUNT(*) FROM launch_outcomes")
+    if on:
+        out.append(f"  outcome data gaps: {og} of {on} ({og / on:.0%})")
+
     out.append("\n== Sample feature rows (newest)")
     for r in q("""SELECT c.source, f.window_min, f.n_obs, f.liquidity_usd, f.price_change,
                   f.buys_h1, f.sells_h1, f.graduated, f.curve_complete, f.curve_consistent,

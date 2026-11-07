@@ -46,9 +46,9 @@ def main(argv=None) -> int:
     while not stop["now"] and (end is None or time.monotonic() < end):
         try:
             r = runner.tick()
-            if r["added"] or r["features"]:
-                log.info("cohort +%d   features captured %d   gaps %d",
-                         r["added"], r["features"], r["gaps"])
+            if r["added"] or r["features"] or r["outcomes"]:
+                log.info("cohort +%d   features captured %d   outcomes labelled %d   gaps %d",
+                         r["added"], r["features"], r["outcomes"], r["gaps"])
         except Exception as e:  # noqa: BLE001 - keep the study alive; log and continue
             log.exception("study tick failed")
             event(runner.conn, "study_error", f"{type(e).__name__}: {e}")

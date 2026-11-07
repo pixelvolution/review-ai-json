@@ -23,6 +23,7 @@ providers:
     buckets:
       slow: {rpm: 60, safety: 0.5}      # token-profiles, token-boosts
       fast: {rpm: 300, safety: 0.5}     # pairs, tokens, token-pairs, search
+      study: {rpm: 30, safety: 1.0}     # launch study's outcome checkpoints (same 300/min limit)
   geckoterminal:
     base_url: https://api.geckoterminal.com/api/v2
     timeout_s: 20
@@ -112,6 +113,15 @@ study:
   curve_price_tol: 0.05         # curve price vs scanner price, for curve_consistent
   tick_s: 5
   pump_program: 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P
+  checkpoints_min: {1h: 60, 6h: 360, 24h: 1440, 72h: 4320, 7d: 10080}
+  outcome_retry_min: 30         # a failed checkpoint lookup is retried this long, then `unknown`
+  labels:                       # thresholds for outcome labels
+    dead_liquidity_usd: 1000    # dead = liquidity below this AND 24h volume below dead_volume
+    dead_volume_h24_usd: 500
+    dead_price_ratio: 0.1       # no liquidity figure (curve): dead = price <= 10% of first AND low volume
+    survived_liquidity_usd: 10000
+    survived_volume_h24_usd: 10000   # no liquidity figure: survived = this volume AND price >= ratio
+    survived_price_ratio: 0.5
   sources:                      # normalized DEX label -> cohort source (default: pool)
     pump-fun: pumpfun_curve
     raydium-launchlab: other_curve

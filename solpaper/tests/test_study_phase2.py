@@ -158,7 +158,8 @@ def test_sf05_feature_tasks_are_queued_before_each_cutoff(env):
     add_pair(env["conn"], "A")
     runner(env).tick()
     lead = env["cfg"]["study"]["lead_s"]
-    due = dict(env["conn"].execute("SELECT window_min, due_at FROM study_queue"))
+    due = dict(env["conn"].execute("SELECT window_min, due_at FROM study_queue "
+                                   "WHERE task = 'features'"))
     assert due == {w: T0.timestamp() + w * 60 - lead for w in (5, 15, 60)}
 
 

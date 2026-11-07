@@ -87,6 +87,19 @@ class DexScreener:
                 out.append(s)
         return out
 
+    def token_pairs(self, mints: list[str], bucket: str = "fast") -> dict | None:
+        """Every pair DexScreener lists for each base mint (up to 30 mints per call)."""
+        data = self.http.get_json(self.name, bucket, f"/tokens/v1/{CHAIN}/{','.join(mints)}",
+                                  fresh_s=self.fresh.get("ds_pairs", 25))
+        if not isinstance(data, list):
+            return None
+        out: dict[str, list[PairSnapshot]] = {m: [] for m in mints}
+        for p in data:
+            base = (p.get("baseToken") or {}).get("address")
+            if base in out:
+                out[base].append(parse_pair(p, "study_outcome"))
+        return out
+
     def pairs(self, addresses: list[str]):
         if not addresses:
             return []

@@ -13,10 +13,12 @@ import time
 from datetime import datetime, timezone
 
 from ..client import Http
+from ..providers.dexscreener import DexScreener
 from ..db import connect, event, now_iso
 from . import curve as curve_mod
 from . import schema
-from .cohort import mark_graduate, parse_ts, start_run, sync
+from . import outcomes
+from .cohort import backfill_outcome_tasks, mark_graduate, parse_ts, start_run, sync
 from .features import compute
 
 FEATURE_COLUMNS = (
@@ -34,12 +36,15 @@ class StudyRunner:
         schema.create(self.conn)
         self.http = http or Http(self.conn, cfg)
         self.wall = wall
+        self.ds = DexScreener(self.http, cfg)
         self.run_id, self.seed = start_run(self.conn, cfg, seed)
+        backfill_outcome_tasks(self.conn, cfg)
 
     def tick(self) -> dict:
         added = sync(self.conn, self.cfg, self.run_id, self.seed)
         done, gaps = self.process_due()
-        return {"added": added, "features": done, "gaps": gaps}
+        labelled, ogaps = outcomes.process(self.conn, self.cfg, self.ds, self.wall)
+        return {"added": added, "features": done, "gaps": gaps + ogaps, "outcomes": labelled}
 
     def _gap(self, pair, window, reason):
         self.conn.execute("INSERT INTO study_gaps (pair_address, task, window_min, ts, reason) "

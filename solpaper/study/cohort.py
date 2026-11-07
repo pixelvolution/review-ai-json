@@ -90,4 +90,23 @@ def sync(conn, cfg: dict, run_id: int, seed: str) -> int:
                 conn.execute("INSERT OR IGNORE INTO study_queue (pair_address, task, window_min, "
                              "due_at, updated_at) VALUES (?, 'features', ?, ?, ?)",
                              (p["pair_address"], w, due, now_iso()))
+            queue_outcomes(conn, cfg, p["pair_address"], first_seen)
     return len(rows)
+
+
+def queue_outcomes(conn, cfg: dict, pair: str, first_seen: datetime) -> None:
+    for minutes in cfg["study"]["checkpoints_min"].values():
+        conn.execute("INSERT OR IGNORE INTO study_queue (pair_address, task, window_min, due_at, "
+                     "updated_at) VALUES (?, 'outcome', ?, ?, ?)",
+                     (pair, minutes, first_seen.timestamp() + minutes * 60, now_iso()))
+
+
+def backfill_outcome_tasks(conn, cfg: dict) -> int:
+    """Launches that joined before outcome tracking existed get their checkpoints too."""
+    n = 0
+    for r in conn.execute("SELECT pair_address, first_seen_at FROM launch_cohort "
+                          "WHERE status = 'launch'").fetchall():
+        before = conn.total_changes
+        queue_outcomes(conn, cfg, r["pair_address"], parse_ts(r["first_seen_at"]))
+        n += conn.total_changes - before
+    return n

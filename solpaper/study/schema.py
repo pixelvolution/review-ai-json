@@ -143,6 +143,11 @@ CREATE TRIGGER IF NOT EXISTS launch_cohort_sampled_only_up BEFORE UPDATE OF samp
 WHEN NEW.sampled < OLD.sampled
 BEGIN SELECT RAISE(ABORT, 'a sampled launch cannot be unsampled'); END;
 
+CREATE TRIGGER IF NOT EXISTS launch_outcomes_no_update BEFORE UPDATE ON launch_outcomes
+BEGIN SELECT RAISE(ABORT, 'launch_outcomes are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS launch_outcomes_no_delete BEFORE DELETE ON launch_outcomes
+BEGIN SELECT RAISE(ABORT, 'launch_outcomes are append-only'); END;
+
 CREATE TRIGGER IF NOT EXISTS study_gaps_no_update BEFORE UPDATE ON study_gaps
 BEGIN SELECT RAISE(ABORT, 'study_gaps is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS study_gaps_no_delete BEFORE DELETE ON study_gaps
@@ -152,3 +157,7 @@ BEGIN SELECT RAISE(ABORT, 'study_gaps is append-only'); END;
 
 def create(conn) -> None:
     conn.executescript(SCHEMA)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(launch_outcomes)")}
+    for name, decl in [("graduated", "INTEGER"), ("price_ratio", "REAL"), ("reason", "TEXT")]:
+        if name not in cols:
+            conn.execute(f"ALTER TABLE launch_outcomes ADD COLUMN {name} {decl}")
