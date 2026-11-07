@@ -473,3 +473,32 @@ def test_fr12_stats_keep_sell_price_vs_pool(env, monkeypatch, capsys):
     monkeypatch.setenv("SOLPAPER_DB", env["cfg"]["db_path"])
     stats.main()
     assert "avg sell price vs pool" in capsys.readouterr().out
+
+
+# ------------------------------------------------------------------ flag run 3 findings
+
+def test_fr08_recorded_real_mint_with_nonzero_transfer_fee():
+    """BERN (recorded live): transferFeeConfig at 269 bps."""
+    cfg = load_config()
+    d = json.loads((FIX / "rpc_bern_transfer_fee.json").read_text())
+    tc = parse_mint(d["mint"], d["response"]["result"]["value"][0])
+    assert risky_extensions(tc, cfg["filters"]["risky_extensions"]) == ["transferFeeConfig"]
+
+
+@pytest.mark.parametrize("plan", [[{"swapInfo": None}], [1], "Whirlpool", {"a": 1}])
+def test_ec07_malformed_route_plan_is_a_quote_error_not_a_crash(env, plan):
+    add_pair(env["conn"], "A")
+    q = json.loads((FIX / "jup_quote_ok.json").read_text())
+    q["routePlan"] = plan
+    env["net"].quote = (200, q)
+    assert decide(env, "A")["A"].reason == "sell_quote_error"
+
+
+def test_pre_a3_failed_rows_are_requoted_too(env):
+    add_pair(env["conn"], "A", mint="MINTA")
+    env["conn"].execute(
+        "INSERT INTO sell_quotes (pair_address, mint, ts, checked_at, usd_in, ok, reason) "
+        "VALUES ('A', 'MINTA', 'old', ?, 10, 0, 'quote_error:incomplete reply')",
+        (env["clk"].t,))
+    d = decide(env, "A")["A"]
+    assert d.outcome == "pass" and env["net"].calls["jup"] == 2

@@ -1,0 +1,56 @@
+{
+ "mint": "CKfatsPMUf8SkiURsDXs7eK6GWb4Jsd6UDbs7twMCWxo",
+ "response": {
+  "jsonrpc": "2.0",
+  "result": {
+   "context": {
+    "apiVersion": "4.4.0",
+    "slot": 466673187
+   },
+   "value": [
+    {
+     "data": {
+      "parsed": {
+       "info": {
+        "decimals": 5,
+        "extensions": [
+         {
+          "extension": "transferFeeConfig",
+          "state": {
+           "newerTransferFee": {
+            "epoch": 698,
+            "maximumFee": 3906250000000000000,
+            "transferFeeBasisPoints": 269
+           },
+           "olderTransferFee": {
+            "epoch": 624,
+            "maximumFee": 3906250000000000000,
+            "transferFeeBasisPoints": 420
+           },
+           "transferFeeConfigAuthority": "BeRNwDN8aGHvxYRVhNyMkF1wsxuEeceux2xn5deFWyEe",
+           "withdrawWithheldAuthority": "BeRNwDN8aGHvxYRVhNyMkF1wsxuEeceux2xn5deFWyEe",
+           "withheldAmount": 23099
+          }
+         }
+        ],
+        "freezeAuthority": null,
+        "isInitialized": true,
+        "mintAuthority": null,
+        "supply": "94327459849787"
+       },
+       "type": "mint"
+      },
+      "program": "spl-token-2022",
+      "space": 278
+     },
+     "executable": false,
+     "lamports": 10574126742,
+     "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+     "rentEpoch": 18446744073709551615,
+     "space": 278
+    }
+   ]
+  },
+  "id": 1
+ }
+}

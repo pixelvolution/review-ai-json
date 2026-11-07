@@ -159,11 +159,11 @@ class Filters:
     def _sell_route(self, row, tc: TokenCheck, m: dict) -> tuple[Decision | None, dict]:
         """Returns (skip Decision or None, metrics including the sell check)."""
         pa, mint = row["pair_address"], row["base_mint"]
-        # Rows saved before amendment A3 have no measured impact: re-quote rather
-        # than decide on them (they'd otherwise fail every cycle until they expire).
+        # Rows saved before amendment A3 (no reference sale, so ref_usd_in is NULL)
+        # are re-quoted, never decided on, whether they succeeded or failed.
         r = self.conn.execute(
             "SELECT * FROM sell_quotes WHERE mint = ? AND checked_at > ? "
-            "AND (ok = 0 OR measured_impact IS NOT NULL) ORDER BY id DESC LIMIT 1",
+            "AND ref_usd_in IS NOT NULL ORDER BY id DESC LIMIT 1",
             (mint, self.wall() - self.fc["sell_quote_ttl_s"])).fetchone()
         if r is None:
             if not row["price_usd"] or row["price_usd"] <= 0 or tc.decimals is None:

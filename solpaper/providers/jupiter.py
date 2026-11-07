@@ -123,8 +123,11 @@ class Jupiter:
             got = out_amount / 10 ** out_dec
             expected = amount / 10 ** decimals * price_native
             effective = got / expected - 1 if expected else None
-        routes = ",".join(dict.fromkeys(
-            r.get("swapInfo", {}).get("label", "?") for r in data.get("routePlan") or []))
+        plan = data.get("routePlan") or []
+        if not isinstance(plan, list) or not all(
+                isinstance(r, dict) and isinstance(r.get("swapInfo"), dict) for r in plan):
+            return SellQuote(ok=False, reason="quote_error:malformed routePlan", amount_in=amount)
+        routes = ",".join(dict.fromkeys(r["swapInfo"].get("label", "?") for r in plan))
         return SellQuote(ok=True, amount_in=amount, out_amount=out_amount,
                          ref_amount_in=ref_amount, ref_out_amount=ref_out,
                          measured_impact=measured, price_impact=impact,
