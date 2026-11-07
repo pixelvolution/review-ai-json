@@ -15,3 +15,5 @@ secrets.json
 .env*
 !.env.example
 *.key
+exports/
+solpaper/exports/

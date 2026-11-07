@@ -296,8 +296,20 @@ def test_export_writes_emoji_names_as_utf8(cfg, tmp_path):
     from solpaper.export import export
     sc = Scanner(cfg, conn=connect(cfg["db_path"]), http=None)
     sc.record([PairSnapshot("P1", "ds_refresh", name="\U0001F319 BUCK / SOL", price_usd=1.0)])
-    counts = export(cfg["db_path"], tmp_path)
+    counts = export(cfg["db_path"], tmp_path, cfg, only="scanner")
     assert counts == {"readings.csv": 1, "pairs.csv": 1}
     raw = (tmp_path / "readings.csv").read_bytes()
     assert raw.startswith(b"\xef\xbb\xbf")  # BOM, so Excel reads it as UTF-8
     assert "\U0001F319 BUCK" in raw.decode("utf-8-sig")
+
+
+
+def test_export_skips_tables_that_do_not_exist_yet(cfg, tmp_path):
+    from solpaper.export import export
+    connect(cfg["db_path"])                       # engine tables only; the study never ran
+    counts = export(cfg["db_path"], tmp_path, cfg)
+    assert counts["study_cohort.csv"] is None and counts["study_features.csv"] is None
+    assert counts["filter_decisions.csv"] == 0     # table exists, no rows yet
+    assert not (tmp_path / "study_cohort.csv").exists()
+    readme = (tmp_path / "README.txt").read_text(encoding="utf-8")
+    assert "not a tradable edge" in readme and "Coverage is unknown" in readme

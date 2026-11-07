@@ -307,3 +307,17 @@ def test_curve_consistency_is_not_judged_for_non_sol_pairs(env):
     f = env["conn"].execute("SELECT curve_consistent, missing FROM launch_features").fetchone()
     assert f["curve_consistent"] is None
     assert json.loads(f["missing"])["curve_consistent"] == "pair not priced in SOL"
+
+
+def test_export_includes_study_findings(env, tmp_path):
+    from solpaper.export import export
+    add_pair(env["conn"], "A", dex="pumpswap")
+    observe(env["conn"], "A", T0 + timedelta(minutes=1))
+    r = runner(env)
+    r.tick()
+    env["clk"].t = (T0 + timedelta(minutes=5)).timestamp() - 10
+    r.tick()
+    counts = export(env["cfg"]["db_path"], tmp_path, env["cfg"], only="study")
+    assert counts["study_cohort.csv"] == 1 and counts["study_features.csv"] == 1
+    head = (tmp_path / "study_features.csv").read_text(encoding="utf-8-sig").splitlines()[0]
+    assert "window_min" in head and "missing" in head and "source" in head
