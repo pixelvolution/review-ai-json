@@ -2,3 +2,6 @@ fastapi
 uvicorn
 pytest
 httpx
+mcp>=2
+pandas
+numpy

@@ -1,0 +1,26 @@
+{
+  "params": {
+    "regime": 200,
+    "scale": 4
+  },
+  "regime_pair": "BTC",
+  "strategy": "macd",
+  "universe": [
+    "DOGE",
+    "SHIB",
+    "PEPE",
+    "FLOKI",
+    "BONK",
+    "WIF",
+    "BOME",
+    "MEME",
+    "PEOPLE",
+    "1000SATS",
+    "NEIRO",
+    "TURBO",
+    "PNUT",
+    "ACT",
+    "TRUMP",
+    "PENGU"
+  ]
+}

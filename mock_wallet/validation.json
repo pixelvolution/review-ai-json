@@ -1,0 +1,13 @@
+{
+  "research_window": ["2024-11-07", "2025-11-07"],
+  "holdout_window": ["2025-11-07", "2026-11-07"],
+  "warmup_hours": 1000,
+  "min_trades": 50,
+  "min_margin": 0.02,
+  "noise_sigma": 0.02,
+  "max_dd_tolerance": 0.0,
+  "fill_delay_bars": 1,
+  "honeypot_rate": 0.02,
+  "honeypot_seed": 7,
+  "shadow": {"enabled": false, "days": 14, "min_trades": 20}
+}

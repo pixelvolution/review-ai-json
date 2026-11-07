@@ -146,7 +146,88 @@ def morning_report(db_path=None) -> str:
     if events:
         lines += ["", "## Recent events", ""]
         lines += [f"- `{e['ts']}` **{e['kind']}**: {e['message']}" for e in events]
+    lines += suggestions_markdown(suggestion_board())
     return "\n".join(lines) + "\n"
+
+
+def suggestion_board(control_db=None, live_config_path=None, settings=None) -> dict | None:
+    """Suggestions for the human: what's validated, with its evidence."""
+    import control
+    import live_config
+    from validate_suggestion import required_margin
+    if not control.control_db_path(control_db).exists():
+        return None
+    s = settings or control.load_settings()
+    n = control.tests_tried(control_db)
+    sugs = control.list_suggestions(db=control_db)
+    counts: dict[str, int] = {}
+    for x in sugs:
+        counts[x["status"]] = counts.get(x["status"], 0) + 1
+    items = []
+    for x in sugs:
+        if x["status"] not in ("validated", "shadow"):
+            continue
+        v = control.latest_validation(x["id"], "test", control_db)
+        sh = control.latest_validation(x["id"], "shadow", control_db)
+        ev = []
+        for name in ("replay", "holdout"):
+            w = v["evidence"]["windows"].get(name) if v else None
+            if w:
+                b, c = w["baseline"], w["candidate"]
+                ev.append({"window": name, "range": w["window"], "trades": c["trades"],
+                           "baseline_trades": b["trades"], "cand_ret": c["ret"],
+                           "base_ret": b["ret"], "edge": c["ret"] - b["ret"],
+                           "cand_dd": c["max_dd"], "base_dd": b["max_dd"]})
+        items.append({**x, "evidence": ev,
+                      "tests_tried_at_test": v["tests_tried"] if v else None,
+                      "required_margin": v["required_margin"] if v else None,
+                      "shadow": sh["evidence"] if sh else None})
+    try:
+        unlogged = control.check_unlogged_edits(control_db, live_config_path, log=False)
+        live = live_config.load(live_config_path)
+    except FileNotFoundError:
+        unlogged, live = [], None
+    return {"tests_tried": n, "next_required_margin": required_margin(n + 1, s),
+            "counts": counts, "items": items, "unlogged_edits": unlogged, "live_config": live,
+            "config_changes": control.config_changes(control_db, limit=5)}
+
+
+def suggestions_markdown(board: dict | None) -> list[str]:
+    if board is None:
+        return []
+    lines = ["", "## Suggestions", "",
+             f"Tests tried so far: **{board['tests_tried']}**. "
+             f"The next test must beat baseline by **{board['next_required_margin']:+.2%}** "
+             f"on both windows."]
+    if board["counts"]:
+        lines.append("Status counts: " + ", ".join(
+            f"{k} {v}" for k, v in sorted(board["counts"].items())) + ".")
+    if board["unlogged_edits"]:
+        lines.append(f"**Warning:** live_config.json was edited without logging "
+                     f"({', '.join(board['unlogged_edits'])}). Run `python set_config.py --check`.")
+    for it in board["items"]:
+        tag = "VALIDATED: awaiting your approval" if it["status"] == "validated" \
+            else "IN SHADOW: running alongside the live config"
+        lines += ["", f"### #{it['id']} `{it['parameter']}` -> `{it['proposed_value']}` ({tag})",
+                  "", f"> {it['rationale']}", "",
+                  f"Tested when {it['tests_tried_at_test']} tests had been tried; required "
+                  f"margin {it['required_margin']:+.2%}.", "",
+                  "| Window | Dates | Trades (cand/base) | Candidate | Baseline | Edge | "
+                  "Max DD (cand/base) |", "|---|---|---|---|---|---|---|"]
+        for e in it["evidence"]:
+            lines.append(
+                f"| {e['window']} | {e['range'][0][:10]} to {e['range'][1][:10]} | "
+                f"{e['trades']}/{e['baseline_trades']} | {e['cand_ret']:+.2%} | "
+                f"{e['base_ret']:+.2%} | {e['edge']:+.2%} | {e['cand_dd']:.1%}/{e['base_dd']:.1%} |")
+        if it["shadow"]:
+            sh = it["shadow"]
+            lines.append(f"\nShadow since {sh['window'][0][:16]}: candidate "
+                         f"{sh['candidate']['ret']:+.2%} ({sh['candidate']['trades']} trades) vs "
+                         f"live {sh['baseline']['ret']:+.2%}.")
+        if it["status"] == "validated":
+            lines.append(f"\nTo apply: `python set_config.py --suggestion {it['id']} "
+                         f"--reason \"...\"`")
+    return lines
 
 
 def _jsonable(obj):
@@ -169,6 +250,12 @@ def main(argv=None) -> int:
                 w.close()
             print(json.dumps(data, default=_jsonable, indent=2))
         else:
+            try:  # log any hand edits to the live config before reporting
+                import control
+                if control.control_db_path().exists():
+                    control.check_unlogged_edits()
+            except FileNotFoundError:
+                pass
             print(morning_report(args.db), end="")
     except Exception as exc:  # noqa: BLE001 - CLI surface
         print(f"error: {exc}", file=sys.stderr)
