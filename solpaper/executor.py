@@ -162,7 +162,7 @@ class Executor:
             state, o = self._fill_obs(t["pair_address"], t["entry_signal_t"])
             if state == "wait":
                 continue
-            if state == "gap" or not o.liquidity:
+            if state == "gap" or not o.liquidity:     # unknown, or an empty pool: no entry
                 why = "no observation within the max fill wait" if state == "gap" \
                     else "no liquidity figure at fill time"
                 self.conn.execute("UPDATE trades SET status = 'entry_failed', note = ? WHERE id = ?",
@@ -228,8 +228,8 @@ class Executor:
                                                     reason=f"honeypot ({t['exit_reason']})")
                 impact, eff = 1.0, 0.0
             else:
-                if not o.liquidity:
-                    continue                      # can't price the impact: wait for a reading
+                if o.liquidity is None:
+                    continue                      # unknown: wait for a reading (0 = empty pool, below)
                 qty = float(pos["qty"])
                 value = qty * o.price
                 got = cp_value_after_impact(value, o.liquidity)

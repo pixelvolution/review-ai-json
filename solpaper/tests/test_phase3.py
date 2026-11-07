@@ -272,3 +272,14 @@ def test_batch_fetch_waits_out_backoff(tmp_path):
     slept = []
     assert http.wait_if_backing_off("geckoterminal", sleep=slept.append) > 0
     assert slept and slept[0] == pytest.approx(3, abs=1)
+
+
+def test_an_empty_pool_is_a_total_loss_not_unpriceable():
+    """Liquidity 0.0 is a known empty pool (a rug), not missing data."""
+    obs = series([(0, 1.0, 50_000), (5, 1.0, 50_000), (100, 4.0, 0.0)])
+    r = simulate(obs, 0, 10, M, NO_EXIT, "P")
+    assert r.status == "closed" and r.proceeds == pytest.approx(-0.05)
+    assert r.net == pytest.approx(-r.spent - 0.05)
+    unknown = simulate(series([(0, 1.0, 50_000), (5, 1.0, 50_000), (100, 4.0, None)]), 0, 10, M,
+                       NO_EXIT, "P")
+    assert unknown.status == "no_liquidity"      # truly unknown stays unpriced

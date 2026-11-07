@@ -72,13 +72,15 @@ def is_honeypot(seed: int, pair: str, t: float, rate: float) -> bool:
 
 
 def quote_side(liquidity: float | None) -> float | None:
-    return None if liquidity is None or liquidity <= 0 else liquidity / 2
+    """The pool's quote-side reserve. None = unknown; 0 = an empty (drained) pool."""
+    return None if liquidity is None else max(liquidity, 0.0) / 2
 
 
 def cp_value_after_impact(value_usd: float, liquidity: float) -> float:
-    """Value (at the mid) actually received when trading `value_usd` into the pool."""
+    """Value (at the mid) actually received when trading `value_usd` into the pool.
+    An empty pool (liquidity 0) pays nothing."""
     r = quote_side(liquidity)
-    if r is None:
+    if not r:
         return 0.0
     return r * value_usd / (r + value_usd)
 
@@ -117,7 +119,8 @@ def simulate(obs: list[Obs], t_signal: float, size_usd: float, m: FillModel, rul
     entry = fill_at(obs, t_signal, m)
     if entry is None:
         return TradeResult("no_entry_fill")
-    if quote_side(entry.liquidity) is None:
+    if not quote_side(entry.liquidity):
+        # unknown liquidity can't be priced; an empty pool can't be bought into
         return TradeResult("no_liquidity", entry_t=entry.t)
     got_value = cp_value_after_impact(size_usd, entry.liquidity)
     tokens = got_value / entry.price

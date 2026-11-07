@@ -249,3 +249,21 @@ def test_cooked_run_is_frozen_and_reset_starts_the_next(env):
     with pytest.raises(sqlite3.DatabaseError):
         w.conn.execute("UPDATE wallet_runs SET status = 'alive'")
     assert reset(env["cfg"]["db_path"], WalletConfig(**env["cfg"]["wallet"])) == 2
+
+
+def test_exit_into_a_drained_pool_closes_at_zero_instead_of_hanging(env):
+    add_pair(env["conn"], "A")
+    ex = env["make"]()
+    ex.tick()
+    obs(env["conn"], "A", 10, 1.0, liq=50_000)
+    at(env, 15)
+    ex.tick()
+    obs(env["conn"], "A", 40, 1.0, liq=0.0)        # rug: liquidity collapse trigger
+    at(env, 41)
+    ex.tick()
+    obs(env["conn"], "A", 50, 1.0, liq=0.0)
+    at(env, 55)
+    ex.tick()
+    t = trade(env)
+    assert t["status"] == "closed" and t["exit_reason"] == "liquidity_collapse"
+    assert t["pnl"] == pytest.approx(-(10 + 0.025 + 0.05) - 0.05, abs=1e-3)
