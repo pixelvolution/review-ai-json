@@ -1,0 +1,5 @@
+__pycache__/
+.pytest_cache/
+mock_wallet/*.db
+mock_wallet/*.db-wal
+mock_wallet/*.db-shm
