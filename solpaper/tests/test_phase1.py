@@ -274,3 +274,14 @@ def test_no_code_path_can_sign_or_send_a_transaction():
             if re.search(pat, src, re.IGNORECASE):
                 offenders.append(f"{f.relative_to(PKG)}: {pat}")
     assert offenders == []
+
+
+def test_export_writes_emoji_names_as_utf8(cfg, tmp_path):
+    from solpaper.export import export
+    sc = Scanner(cfg, conn=connect(cfg["db_path"]), http=None)
+    sc.record([PairSnapshot("P1", "ds_refresh", name="\U0001F319 BUCK / SOL", price_usd=1.0)])
+    counts = export(cfg["db_path"], tmp_path)
+    assert counts == {"readings.csv": 1, "pairs.csv": 1}
+    raw = (tmp_path / "readings.csv").read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")  # BOM, so Excel reads it as UTF-8
+    assert "\U0001F319 BUCK" in raw.decode("utf-8-sig")

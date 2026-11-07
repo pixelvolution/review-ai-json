@@ -29,6 +29,7 @@ Built in phases, each reviewed before the next.
     pip install -r solpaper/requirements.txt
     python -m solpaper.scanner --minutes 30     # or no flag to run until stopped
     python -m solpaper.stats                     # what it captured
+    python -m solpaper.export                    # readings.csv + pairs.csv for Excel
     python -m pytest solpaper/tests
 
 Config: `solpaper/config.yaml`. Database: `solpaper/solpaper.db`, or set `SOLPAPER_DB`.
