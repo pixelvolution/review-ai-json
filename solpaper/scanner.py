@@ -137,6 +137,12 @@ class Scanner:
         if job == "filter":
             from .filters import evaluate_tracked
             return evaluate_tracked(self)
+        if job == "trade":
+            from .executor import Executor
+            if getattr(self, "_executor", None) is None:
+                self._executor = Executor(self.conn, self.cfg)
+            r = self._executor.tick()
+            return r["entries"] + r["fills"] + r["exits"]
         src = self.gt if job.startswith("gt_") else self.ds
         snaps = src.discover(job)
         return None if snaps is None else self.record(snaps)
@@ -155,7 +161,8 @@ class Scanner:
                     continue
                 log.info("%-16s %s in %.1fs", job,
                          "no data (gap)" if n is None else
-                         f"{n} pairs evaluated" if job == "filter" else f"{n} new observations",
+                         f"{n} pairs evaluated" if job == "filter" else
+                         f"{n} trade actions" if job == "trade" else f"{n} new observations",
                          time.monotonic() - t0)
 
     def run(self, minutes: float | None = None):

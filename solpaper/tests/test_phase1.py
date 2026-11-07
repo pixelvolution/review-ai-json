@@ -247,10 +247,11 @@ def test_each_job_is_timed_from_its_own_start(cfg):
     starts = dict(ran)
     for job, every in cfg["scanner"]["intervals_s"].items():
         assert sc.next_run[job] == starts[job] + every
-    # The last job in the pass started 16s after the first; its next run is
-    # a full interval after its own start, so the 25s quote cache has expired.
-    last = list(cfg["scanner"]["intervals_s"])[-1]
-    assert sc.next_run[last] - starts[last] > cfg["freshness_s"]["ds_pairs"]
+    # refresh_tracked starts late in the pass; its next run is a full interval
+    # after its own start, so its 25 s quote cache has expired by then.
+    job = "refresh_tracked"
+    assert starts[job] > starts[next(iter(starts))]
+    assert sc.next_run[job] - starts[job] > cfg["freshness_s"]["ds_pairs"]
 
 
 # ------------------------------------------------------------------ safety

@@ -68,6 +68,7 @@ scanner:
     ds_profiles: 120
     refresh_tracked: 30
     filter: 30
+    trade: 10                   # paper executor (phase 4)
   gt_new_pool_pages: 1    # 20 pools per page
   track_hours: 12         # keep re-observing a pair this long after first seen
   max_tracked: 1000       # 1000 pairs / 30 per call = 34 DexScreener calls per refresh
@@ -151,3 +152,24 @@ research:
     take_profit: [0.2, 0.5, 1.0]
     stop_loss: [0.1, 0.25]
     time_stop_min: [15, 60]
+
+# ---------------------------------------------------------------- mock wallet + paper executor (phase 4)
+wallet:
+  start_balance: 100
+  min_trade_size: 5             # equity below this cooks the run
+  max_drawdown: 0.25            # kill switch: drawdown from peak equity
+  vault_target_multiple: 2      # cup rule: above 2x start, bank the excess in the vault
+  position_fraction: 0.10       # position size = this share of current equity
+  fee_rate: 0.0025              # DEX fee per leg (same as fills.fee_rate)
+  slippage_rate: 0              # impact is already in the executor's constant-product fill price
+  tip: 0.05                     # flat tip per transaction (same as fills.tip_usd)
+
+trading:
+  max_open_positions: 5
+  daily_loss_cap_usd: 25        # no new entries after this much realized loss in a UTC day
+  one_trade_per_pair: true
+  exit:                         # exits: take-profit, stop-loss, time stop, liquidity collapse
+    take_profit: 0.5
+    stop_loss: 0.25
+    time_stop_min: 60
+    liquidity_collapse: 0.5

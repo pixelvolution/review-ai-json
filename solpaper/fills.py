@@ -92,6 +92,24 @@ def fill_at(obs: list[Obs], t_decision: float, m: FillModel) -> Obs | None:
     return None
 
 
+def exit_trigger(rule: ExitRule, entry_mid: float, entry_liq: float, entry_t: float,
+                 o: Obs) -> str | None:
+    """Does observation ``o`` trigger an exit? Shared by replay and live paper trading."""
+    if not o.price:
+        return None
+    ret = o.price / entry_mid - 1
+    if rule.take_profit is not None and ret >= rule.take_profit:
+        return "take_profit"
+    if rule.stop_loss is not None and ret <= -rule.stop_loss:
+        return "stop_loss"
+    if (rule.liquidity_collapse is not None and o.liquidity is not None and entry_liq
+            and o.liquidity < entry_liq * (1 - rule.liquidity_collapse)):
+        return "liquidity_collapse"
+    if rule.time_stop_s is not None and o.t - entry_t >= rule.time_stop_s:
+        return "time_stop"
+    return None
+
+
 def simulate(obs: list[Obs], t_signal: float, size_usd: float, m: FillModel, rule: ExitRule,
              pair: str) -> TradeResult:
     """One round trip. ``obs`` sorted by time; only observations after the signal matter."""
@@ -112,17 +130,9 @@ def simulate(obs: list[Obs], t_signal: float, size_usd: float, m: FillModel, rul
     for o in obs:
         if o.t <= entry.t or not o.price:
             continue
-        ret = o.price / entry.price - 1
-        if rule.take_profit is not None and ret >= rule.take_profit:
-            trigger_t, reason = o.t, "take_profit"
-        elif rule.stop_loss is not None and ret <= -rule.stop_loss:
-            trigger_t, reason = o.t, "stop_loss"
-        elif (rule.liquidity_collapse is not None and o.liquidity is not None
-              and o.liquidity < entry.liquidity * (1 - rule.liquidity_collapse)):
-            trigger_t, reason = o.t, "liquidity_collapse"
-        elif rule.time_stop_s is not None and o.t - entry.t >= rule.time_stop_s:
-            trigger_t, reason = o.t, "time_stop"
-        if trigger_t is not None:
+        reason = exit_trigger(rule, entry.price, entry.liquidity, entry.t, o)
+        if reason:
+            trigger_t = o.t
             break
     if trigger_t is None:
         later = [o for o in obs if o.t > entry.t and o.price]

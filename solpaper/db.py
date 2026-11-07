@@ -223,6 +223,51 @@ CREATE TABLE IF NOT EXISTS research_hypotheses (
     verdict     TEXT NOT NULL
 );
 
+-- Phase 4: paper executor. Every decision has a reason.
+CREATE TABLE IF NOT EXISTS signals (
+    id           INTEGER PRIMARY KEY,
+    pair_address TEXT NOT NULL,
+    t            REAL NOT NULL,      -- decision time, unix seconds
+    kind         TEXT NOT NULL,      -- entry | exit
+    reason       TEXT NOT NULL,
+    price        REAL,               -- latest observed mid at decision time
+    liquidity    REAL,
+    trade_id     INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS trades (
+    id             INTEGER PRIMARY KEY,
+    pair_address   TEXT NOT NULL,
+    name           TEXT,
+    wallet_run_id  INTEGER,
+    position_id    INTEGER,          -- wallet_positions.position_id
+    status         TEXT NOT NULL,    -- pending_entry | open | pending_exit | closed | failed_sell | entry_failed
+    entry_reason   TEXT,
+    notional       REAL,
+    entry_signal_t REAL,
+    entry_fill_t   REAL,
+    entry_delay_s  REAL,
+    entry_mid      REAL,
+    entry_price    REAL,             -- effective fill price incl. constant-product impact
+    entry_impact   REAL,
+    entry_liquidity REAL,
+    honeypot       INTEGER,
+    exit_reason    TEXT,
+    exit_signal_t  REAL,
+    exit_fill_t    REAL,
+    exit_delay_s   REAL,
+    exit_mid       REAL,
+    exit_price     REAL,
+    exit_impact    REAL,
+    fees           REAL,             -- DEX fees, both legs
+    tips           REAL,
+    proceeds       REAL,
+    pnl            REAL,             -- after every cost
+    last_obs_t     REAL,             -- newest observation the monitor has looked at
+    note           TEXT
+);
+CREATE INDEX IF NOT EXISTS trades_status ON trades(status);
+
 CREATE TABLE IF NOT EXISTS events (
     id      INTEGER PRIMARY KEY,
     ts      TEXT NOT NULL,
