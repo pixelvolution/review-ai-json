@@ -101,6 +101,13 @@ class Http:
                   f"{provider}: data gap ended after {row['attempts']} failed attempts "
                   f"(since {row['started_at']})")
 
+    def wait_if_backing_off(self, provider: str, sleep=time.sleep) -> float:
+        """For batch jobs: wait out a provider's backoff instead of failing fast."""
+        left = self.backoffs[provider].remaining()
+        if left > 0:
+            sleep(left)
+        return left
+
     # ------------------------------------------------------------------ get
     def get_json(self, provider: str, bucket: str, path: str, params: dict | None = None,
                  fresh_s: float = 0, answer_statuses: frozenset = frozenset()):

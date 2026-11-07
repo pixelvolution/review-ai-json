@@ -261,3 +261,14 @@ def test_research_small_groups_are_insufficient_data_and_hypotheses_are_recorded
 def test_binomial_tail():
     assert research.binom_tail(0, 10) == pytest.approx(1.0)
     assert research.binom_tail(10, 10) == pytest.approx(1 / 1024)
+
+
+def test_batch_fetch_waits_out_backoff(tmp_path):
+    cfg = load_config()
+    cfg["db_path"] = str(tmp_path / "w.db")
+    conn = connect(cfg["db_path"])
+    http = Http(conn, cfg, transport=httpx.MockTransport(lambda r: httpx.Response(429)))
+    http.backoffs["geckoterminal"].failure(retry_after=3)
+    slept = []
+    assert http.wait_if_backing_off("geckoterminal", sleep=slept.append) > 0
+    assert slept and slept[0] == pytest.approx(3, abs=1)

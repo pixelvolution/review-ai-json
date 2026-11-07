@@ -83,8 +83,8 @@ def entry_signal(conn, cfg: dict, pair) -> tuple[float, object] | None:
     if pair["quote_mint"] not in fc["allowed_quotes"]:
         return None
     created = ts(pair["pair_created_at"])
-    for r in conn.execute("SELECT * FROM pairs_seen WHERE pair_address = ? AND unchanged = 0 "
-                          "ORDER BY id", (pair["pair_address"],)):
+    for r in conn.execute("SELECT * FROM pairs_seen WHERE pair_address = ? ORDER BY id",
+                          (pair["pair_address"],)):
         seen = ts(r["observed_at"])
         age_min = (seen - created).total_seconds() / 60
         if age_min < fc["min_age_min"] or age_min > fc["max_age_hours"] * 60:
@@ -96,9 +96,12 @@ def entry_signal(conn, cfg: dict, pair) -> tuple[float, object] | None:
 
 
 def observations(conn, pair: str) -> list[Obs]:
+    """Every reading, repeats included: a repeat is still an observation of the
+    price at that moment (dropping them would invent gaps longer than the fill
+    window). Staleness is a known limit of the source, noted in the report."""
     return [Obs(ts(r["observed_at"]).timestamp(), r["price_usd"], r["liquidity_usd"])
             for r in conn.execute("SELECT observed_at, price_usd, liquidity_usd FROM pairs_seen "
-                                  "WHERE pair_address = ? AND unchanged = 0 ORDER BY id", (pair,))]
+                                  "WHERE pair_address = ? ORDER BY id", (pair,))]
 
 
 def activity_bucket(row) -> str:
@@ -123,7 +126,12 @@ def fetch(conn, http: Http, cfg: dict, sample: list) -> dict:
     gt, rpc = GeckoTerminal(http, cfg), SolanaRpc(http, cfg)
     got = {"trades_ok": 0, "trades_failed": 0, "holders_ok": 0, "holders_failed": 0}
     for _, p in sample:
-        tr = gt.trades(p["pair_address"], p["base_mint"])
+        tr = None
+        for _attempt in range(4):          # batch job: wait out rate limits, then retry
+            http.wait_if_backing_off(gt.name)
+            tr = gt.trades(p["pair_address"], p["base_mint"])
+            if tr is not None:
+                break
         if tr is None:
             got["trades_failed"] += 1
         else:
@@ -205,7 +213,7 @@ def summarize(conn, cfg: dict, run_id: int, results: list[dict], sample: list) -
     n_tests = prior + len(groups)
     alpha = 0.05 / max(n_tests, 1)
     lines.append(f"\nComparisons tried so far (all runs): {n_tests}. A rule only counts if its share "
-                 f"of winners beats a coin flip at p < {alpha:.5f} (0.05 / {n_tests}).\n")
+                 f"of winners beats a coin flip at p < {alpha:.5f} (0.05 / {max(n_tests, 1)}).\n")
     lines.append(f"{'rule':18s} {'bucket':24s} {'pairs':>5s} {'net>0':>6s} {'median':>8s} "
                  f"{'total':>8s}  verdict")
     for (rid, bucket), rows in sorted(groups.items(), key=lambda kv: (kv[0][1] != "all clean pairs",
@@ -237,8 +245,14 @@ def summarize(conn, cfg: dict, run_id: int, results: list[dict], sample: list) -
             real = sum(r["net"] > 0 for r in fr)
             lines.append(f"  {rid:18s} {len(fr)} pairs: {looked} looked profitable on price alone, "
                          f"{real} were profitable after costs")
-    gaps = sum(1 for r in results if r["rule"] and r["status"] != "closed")
-    lines.append(f"\nReplays that couldn't be priced honestly (no fill / no liquidity data): {gaps}")
+    gap_kinds: dict[str, int] = {}
+    for r in results:
+        if r["rule"] and r["status"] != "closed":
+            gap_kinds[r["status"]] = gap_kinds.get(r["status"], 0) + 1
+    lines.append(f"\nReplays that couldn't be priced honestly: {sum(gap_kinds.values())} "
+                 f"{gap_kinds or ''}")
+    lines.append("Source limit: DexScreener prices can be 30-60 s stale; repeated readings are "
+                 "used as observations of the price at that moment.")
     return "\n".join(lines)
 
 
