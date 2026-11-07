@@ -38,8 +38,8 @@ shows how many pairs were skipped for each reason.
 | FR-11 | Token checks are cached in `token_checks` per mint. A revoked authority is cached for good (it can't be re-enabled). Any other result is re-checked after `token_check_ttl_s`. | Test: second evaluation within TTL makes no RPC request. |
 | FR-12 | Skip-reason stats: `python -m solpaper.stats` adds a "Filters" section showing pairs passed and skipped, and each pair's **current** reason with count and %, plus a one-line summary of sell quotes (count, routes found, average impact, average sell price vs pool). *(A2: the quote summary was added.)* | Test on a seeded DB. |
 | FR-13 | All thresholds live in `config.yaml` under `filters:`. | Code review: no threshold literals in `filters.py`. |
-| FR-14 | **Sell-route check** (amendment): for pairs that pass tier 1 and the token checks, ask Jupiter's read-only quote API (`GET /swap/v1/quote`) to sell `sell_check_usd` worth of the base token into the pair's quote token. Skip `no_sell_route` when Jupiter answers that the token isn't tradable or has no route. Skip `sell_impact_too_high` when `priceImpactPct` exceeds `max_sell_impact`. Every quote is stored in `sell_quotes`: amount in, amount out, price impact, route labels, and the effective sell price vs the pool price. Quotes are cached per mint for `sell_quote_ttl_s`. | Tests with recorded quote and no-route responses. |
-| FR-14a | *(Amendment A3, user-approved.)* The sell check is judged on **measured** price impact: two quotes at the same moment, a `sell_reference_usd` sale and the `sell_check_usd` sale, give `measured_impact = 1 - (payout per token at our size / payout per token at the reference size)`. Skip `sell_impact_too_high` when `measured_impact > max_sell_impact`. Jupiter's `priceImpactPct` is stored as a cross-check only; it is NULL when absent, and `impact_disagrees` is set when it differs from the measured value by more than `impact_disagreement_tol`. A failed reference quote follows the same rules as the main quote. | Tests: the reported-100%-but-payout-fine case passes and is flagged; the near-zero-payout case is skipped whatever Jupiter reports; a reference-quote outage gives `check_unavailable:sell_route`. |
+| FR-14 | *(A4: the pass/fail threshold below is superseded by FR-14a; the rest stands.)* **Sell-route check** (amendment): for pairs that pass tier 1 and the token checks, ask Jupiter's read-only quote API (`GET /swap/v1/quote`) to sell `sell_check_usd` worth of the base token into the pair's quote token. Skip `no_sell_route` when Jupiter answers that the token isn't tradable or has no route. Skip `sell_impact_too_high` when `priceImpactPct` exceeds `max_sell_impact`. Every quote is stored in `sell_quotes`: amount in, amount out, price impact, route labels, and the effective sell price vs the pool price. Quotes are cached per mint for `sell_quote_ttl_s`. | Tests with recorded quote and no-route responses. |
+| FR-14a | *(Amendment A3, user-approved.)* The sell check is judged on **measured** price impact: two quotes at the same moment, a `sell_reference_usd` sale and the `sell_check_usd` sale, give `measured_impact = 1 - (payout per token at our size / payout per token at the reference size)`. *(A4: "the same moment" means back to back, as close as the Jupiter budget allows, about one pacer interval or ~5 s. If both sales pay 0, `measured_impact` = 1.0. If only the reference pays 0, or a sale size rounds to 0 token units, it's `sell_quote_error`.)* Skip `sell_impact_too_high` when `measured_impact > max_sell_impact`. Jupiter's `priceImpactPct` is stored as a cross-check only; it is NULL when absent, and `impact_disagrees` is set when it differs from the measured value by more than `impact_disagreement_tol`. A failed reference quote follows the same rules as the main quote. | Tests: the reported-100%-but-payout-fine case passes and is flagged; the near-zero-payout case is skipped whatever Jupiter reports; a reference-quote outage gives `check_unavailable:sell_route`. |
 
 ---
 
@@ -52,7 +52,7 @@ shows how many pairs were skipped for each reason.
 | EC-03 | Pair moves from skip to pass, e.g. liquidity grows past the floor | New `filter_passes` row. The earlier skip rows stay as history. |
 | EC-04 | Pair passes, then later fails, e.g. liquidity collapses | New `skips` row with the new reason. Phase 4's forced exit handles any open position. |
 | EC-05 | Same coin appears under two DEX labels (`pump-fun` / `pumpfun`) | DEX names are normalized to one label before any rule or stat uses them. |
-| EC-07 | Jupiter's reply to a sell quote is anything other than a complete quote | *(Amended A2.)* HTTP 400 is Jupiter saying it can't be sold: skip `no_sell_route`. Any other 4xx, or a 200 missing `outAmount`/`priceImpactPct`, is a skip with `sell_quote_error`; a missing value is never read as 0. No price or decimals to size the quote: skip `price_unknown`, and no request is sent. Only 429/5xx/network errors count as `check_unavailable:sell_route` and open a data gap. |
+| EC-07 | Jupiter's reply to a sell quote is anything other than a complete quote | *(Amended A2, A4.)* HTTP 400 is Jupiter saying it can't be sold: skip `no_sell_route`. Any other 4xx, a 200 missing `outAmount`, or a 200 whose JSON isn't an object is `sell_quote_error`; a missing value is never read as 0. A missing `priceImpactPct` follows FR-14a: stored NULL, decision on measured impact. A 200 whose body isn't JSON counts as an outage (gap + backoff), because it's usually a proxy or CDN error page. No price or decimals to size the quote: skip `price_unknown`, and no request is sent. Only 429/5xx/network errors count as `check_unavailable:sell_route` and open a data gap. |
 | EC-06 | Quote token is another memecoin (e.g. `X / SPCX`, `sink / PUMP`) | Skip `quote_not_allowed` (allowed: SOL, USDC by default). |
 
 ---
@@ -72,6 +72,9 @@ shows how many pairs were skipped for each reason.
 - Must follow existing patterns: `None` means unknown, never 0; a provider
   failure returns `None` and is logged as a gap.
 - Must not modify Phase 1 scanner behavior except adding the `filter` job.
+  *(A4 exception, user-approved 2026-11-07: scanner tracking raised to
+  `max_tracked` 1000 / `track_hours` 12. It's config only; DexScreener use rises to
+  about 68 calls a minute against a 150/min budget.)*
   *(A2 note: log and `http_error` event text now name the full URL instead of the
   path, because RPC calls have no path. Message text only; behavior is unchanged.)*
 
@@ -83,7 +86,7 @@ New tables:
 - `skips(id, pair_address, ts, stage, reason, detail, metrics)`. Stage is `tier1`, `token` or `sell_route`. *(A2: column `metrics`, stage `sell_route`.)*
 - `filter_passes(id, pair_address, ts, metrics)`. Each new pass also writes a `filter_pass` event for the live feed. *(A2)*
 - `token_checks(mint, checked_at, readable, program, decimals, mint_authority, freeze_authority, extensions)`. *(A2: `readable` and `decimals` replace `ok`/`reason`. The decision is derived from the facts at evaluation time, and decimals are needed to size the sell quote.)*
-- `sell_quotes(id, pair_address, mint, ts, checked_at, usd_in, amount_in, out_mint, out_amount, price_impact, effective_vs_pool, routes, ok, reason)`. `reason` is `no_route:<code>` or `quote_error:<what>`. *(A2: `checked_at` added for the TTL.)*
+- `sell_quotes(id, pair_address, mint, ts, checked_at, usd_in, amount_in, out_mint, out_amount, price_impact, ref_usd_in, ref_amount_in, ref_out_amount, measured_impact, impact_disagrees, effective_vs_pool, routes, ok, reason)`. `reason` is `no_route:<code>` or `quote_error:<what>`. *(A2: `checked_at` added for the TTL. A4: reference-sale columns and `measured_impact`/`impact_disagrees` from FR-14a. Rows saved before A3 have NULL `measured_impact` and are re-quoted, not decided on.)*
 - `filter_state(pair_address, outcome, reason, updated_at)`: current outcome, used to log changes only.
 
 New provider interfaces in `providers/base.py`: `TokenSafety.check(mints) -> dict[mint, TokenCheck] | None`,
@@ -92,7 +95,8 @@ by `providers/jupiter.py`. *(A2: the `SellRoute` interface was added.)*
 
 Config (`filters:`): `liquidity_floor_usd`, `min_age_min`, `max_age_hours`,
 `max_reading_age_s`, `allowed_quotes`, `risky_extensions`, `token_check_ttl_s`,
-`sell_check_usd`, `sell_quote_slippage_bps`, `max_sell_impact`, `sell_quote_ttl_s`.
+`sell_check_usd`, `sell_quote_slippage_bps`, `max_sell_impact`, `sell_quote_ttl_s`,
+`sell_reference_usd`, `impact_disagreement_tol`.
 *(A2: the job interval lives with the other jobs at `scanner.intervals_s.filter`.
 The DEX label map is a top-level `dex_aliases` key, because stats and export use it too.)*
 
@@ -136,3 +140,4 @@ Providers (limits verified 2026-11-07):
 | A1b | 2026-11-07 | **During the build** | Added the `filter_state` table, the provider-limit notes, and Open Question 3 | Recorded honestly: these were added while building, not before. The flag report caught it. No FR or EC wording changed. |
 | A2 | 2026-11-07 | After FLAG-REPORT-2026-11-07 (**spec errors**) | EC-07 rewritten to cover every non-quote reply; Data & Interfaces corrected (column names, `sell_route` stage, `SellRoute` interface, config key locations, `sell_quote_slippage_bps`); FR-12 and the `filter_pass` event documented | The report showed the spec was silent or wrong on these. Code flags (FR-08, FR-11, FR-14, EC-01, EC-05, the missing `TokenSafety` interface, hard-coded literals) were fixed in code, not by editing the spec. A new flag run follows. |
 | A3 | 2026-11-07 | After the live run, **user-approved** | FR-14a: decide on measured impact from payouts, not Jupiter's `priceImpactPct`. New config: `sell_reference_usd`, `impact_disagreement_tol`; `sell_quote_ttl_s` 120 -> 180 | The live run showed `priceImpactPct` = 100% on quotes paying within ~1% of the pool price. The user approved judging the sell check by its actual payout. |
+| A4 | 2026-11-07 | After FLAG-REPORT run 2 (**spec errors**) | FR-14 marked as superseded by FR-14a for the threshold; FR-14a defines "same moment", the zero-payout rules and rounds-to-zero; EC-07 aligned with FR-14a, plus the non-object and non-JSON cases; `sell_quotes` columns and config keys listed; tracking-limit exception recorded | Run 2 showed the spec was ambiguous or contradictory here. Code flags (reference 400, non-object reply, stats line, recorded extension fixture) and the pre-A3 row crash were fixed in code with tests (65 pass). |

@@ -430,3 +430,46 @@ def test_scanner_runs_the_filter_job(env):
     sc = Scanner(env["cfg"], conn=env["conn"], http=env["f"].rpc.http)
     sc.tracked = lambda: ["A"]
     assert sc.run_job("filter") == 1
+
+
+# ------------------------------------------------------------------ flag run 2 findings
+
+def test_fr08_recorded_real_mint_with_watched_extensions():
+    """PYUSD (recorded live): permanentDelegate, transferHook (no program), 0% fee."""
+    cfg = load_config()
+    d = json.loads((FIX / "rpc_pyusd_extensions.json").read_text())
+    tc = parse_mint(d["mint"], d["response"]["result"]["value"][0])
+    assert tc.program == "spl-token-2022"
+    assert risky_extensions(tc, cfg["filters"]["risky_extensions"]) == [
+        "transferHook", "permanentDelegate"]           # 0% transfer fee is not counted
+
+
+def test_pre_a3_quote_rows_are_requoted_not_crashed_on(env):
+    add_pair(env["conn"], "A", mint="MINTA")
+    env["conn"].execute(
+        "INSERT INTO sell_quotes (pair_address, mint, ts, checked_at, usd_in, ok) "
+        "VALUES ('A', 'MINTA', 'old', ?, 10, 1)", (env["clk"].t,))   # measured_impact NULL
+    d = decide(env, "A")["A"]
+    assert d.outcome == "pass" and env["net"].calls["jup"] == 2
+
+
+def test_fr14a_reference_400_is_no_route_like_the_main_quote(env):
+    add_pair(env["conn"], "A")
+    env["net"].ref_reply = (400, {"error": "no route", "errorCode": "COULD_NOT_FIND_ANY_ROUTE"})
+    d = decide(env, "A")["A"]
+    assert d.reason == "no_sell_route" and "COULD_NOT_FIND_ANY_ROUTE" in d.detail
+
+
+def test_ec07_json_reply_that_is_not_an_object_is_a_quote_error(env):
+    add_pair(env["conn"], "A")
+    env["net"].quote = (200, [1, 2, 3])
+    assert decide(env, "A")["A"].reason == "sell_quote_error"
+
+
+def test_fr12_stats_keep_sell_price_vs_pool(env, monkeypatch, capsys):
+    from solpaper import stats
+    add_pair(env["conn"], "A")
+    decide(env, "A")
+    monkeypatch.setenv("SOLPAPER_DB", env["cfg"]["db_path"])
+    stats.main()
+    assert "avg sell price vs pool" in capsys.readouterr().out

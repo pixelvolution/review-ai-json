@@ -60,6 +60,8 @@ class Jupiter:
             answer_statuses=CLIENT_ERRORS)
         if data is None:
             return None
+        if not isinstance(data, dict):
+            return "quote_error:reply is not a JSON object", {}
         status = data.get("_http_status")
         if status == 400:
             return f"no_route:{data.get('errorCode') or 'NO_ROUTE'}", data
@@ -98,7 +100,10 @@ class Jupiter:
             return None
         ref_reason, ref_data = ref
         if ref_reason:
-            return SellQuote(ok=False, reason=f"quote_error:reference {ref_reason}",
+            # Same rules as the main quote (FR-14a): a 400 means no route.
+            if ref_reason.startswith("no_route:"):
+                return SellQuote(ok=False, reason=ref_reason, amount_in=amount)
+            return SellQuote(ok=False, reason=f"quote_error:reference {ref_reason.split(':', 1)[1]}",
                              amount_in=amount)
         out_amount, ref_out = int(data["outAmount"]), int(ref_data["outAmount"])
         if ref_out > 0:
