@@ -72,18 +72,26 @@ class Scanner:
                 (s.pair_address, s.dex, s.base_mint, s.quote_mint, s.base_symbol, s.name,
                  s.pair_created_at, now_iso(), s.source)).rowcount
             spike = is_volume_spike(s, self.cfg)
+            fam = "ds%" if s.source.startswith("ds") else "gt%"
+            prev = self.conn.execute(
+                "SELECT price_usd, liquidity_usd, vol_m5, vol_h1, buys_h1, sells_h1 "
+                "FROM pairs_seen WHERE pair_address = ? AND source LIKE ? "
+                "ORDER BY id DESC LIMIT 1", (s.pair_address, fam)).fetchone()
+            unchanged = prev is not None and tuple(prev) == (
+                s.price_usd, s.liquidity_usd, s.vol.get("m5"), s.vol.get("h1"),
+                s.buys.get("h1"), s.sells.get("h1"))
             self.conn.execute(
                 "INSERT INTO pairs_seen (pair_address, observed_at, source, data_age_s, "
                 "price_usd, price_native, liquidity_usd, fdv_usd, mcap_usd, vol_m5, vol_h1, "
                 "vol_h6, vol_h24, buys_m5, sells_m5, buys_h1, sells_h1, buys_h24, sells_h24, "
-                "chg_m5, chg_h1, chg_h24, volume_spike) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "chg_m5, chg_h1, chg_h24, volume_spike, unchanged) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (s.pair_address, now_iso(), s.source, s.data_age_s, s.price_usd,
                  s.price_native, s.liquidity_usd, s.fdv_usd, s.mcap_usd, s.vol.get("m5"),
                  s.vol.get("h1"), s.vol.get("h6"), s.vol.get("h24"), s.buys.get("m5"),
                  s.sells.get("m5"), s.buys.get("h1"), s.sells.get("h1"), s.buys.get("h24"),
                  s.sells.get("h24"), s.change.get("m5"), s.change.get("h1"),
-                 s.change.get("h24"), int(spike)))
+                 s.change.get("h24"), int(spike), int(unchanged)))
             if new:
                 event(self.conn, "pair_new", f"new pair {s.name} {s.pair_address} via {s.source}",
                       {"pair": s.pair_address, "created": s.pair_created_at})

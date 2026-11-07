@@ -58,6 +58,7 @@ class Http:
         row = self.conn.execute("SELECT fetched_at, cdn_age_s, body FROM http_cache "
                                 "WHERE key = ?", (key,)).fetchone()
         if row and self.wall() - row["fetched_at"] < fresh_s:
+            # Time in our cache is known; CDN age only if the CDN reported it.
             self.last_age_s = self.wall() - row["fetched_at"] + (row["cdn_age_s"] or 0)
             self.last_from_cache = True
             return json.loads(row["body"])
@@ -136,7 +137,7 @@ class Http:
                 err = f"bad JSON: {e}"
             else:
                 self._cache_put(key, provider, url, status, body, age)
-                self.last_age_s = age or 0.0
+                self.last_age_s = age  # None when the CDN didn't say: unknown, not fresh
                 self.last_from_cache = False
                 bo.success()
                 self._gap_success(provider)

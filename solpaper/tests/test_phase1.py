@@ -117,7 +117,7 @@ def test_cache_prevents_repeat_requests_within_freshness(cfg):
 
     conn, http, clk = make_http(cfg, handler)
     assert http.get_json("dexscreener", "fast", "/p", fresh_s=30) == {"v": 1}
-    assert http.last_age_s == 7
+    assert http.last_age_s == 7  # CDN said 7s
     clk.t += 10
     assert http.get_json("dexscreener", "fast", "/p", fresh_s=30) == {"v": 1}
     assert len(n) == 1
@@ -126,6 +126,36 @@ def test_cache_prevents_repeat_requests_within_freshness(cfg):
     assert http.get_json("dexscreener", "fast", "/p", fresh_s=30) == {"v": 2}
     assert len(n) == 2
     assert conn.execute("SELECT COUNT(*) FROM request_log").fetchone()[0] == 2
+
+
+def test_missing_cdn_age_is_unknown_not_fresh(cfg):
+    conn, http, clk = make_http(cfg, lambda r: httpx.Response(200, json={}))
+    http.get_json("dexscreener", "fast", "/p", fresh_s=30)
+    assert http.last_age_s is None
+
+
+def test_repeated_identical_readings_are_flagged(cfg):
+    from solpaper.providers.base import PairSnapshot as S
+    sc = Scanner(cfg, conn=connect(cfg["db_path"]), http=None)
+    snap = lambda p: S("P1", "ds_refresh", price_usd=p, vol={"m5": 1, "h1": 2},
+                       buys={"h1": 3}, sells={"h1": 4})
+    sc.record([snap(1.0)])
+    sc.record([snap(1.0)])   # same numbers again
+    sc.record([snap(1.1)])   # price moved
+    flags = [r[0] for r in sc.conn.execute("SELECT unchanged FROM pairs_seen ORDER BY id")]
+    assert flags == [0, 1, 0]
+
+
+def test_old_database_gets_the_new_column(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE pairs_seen (id INTEGER PRIMARY KEY, pair_address TEXT, "
+                "observed_at TEXT, source TEXT, volume_spike INTEGER NOT NULL DEFAULT 0)")
+    old.commit()
+    old.close()
+    cols = {r["name"] for r in connect(str(path)).execute("PRAGMA table_info(pairs_seen)")}
+    assert "unchanged" in cols
 
 
 def test_non_retryable_errors_are_logged_without_backoff(cfg):

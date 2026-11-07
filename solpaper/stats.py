@@ -20,6 +20,11 @@ def main() -> int:
     print(f"pairs seen: {one('SELECT COUNT(*) FROM pairs')}   "
           f"observations: {one('SELECT COUNT(*) FROM pairs_seen')}   "
           f"volume-spike observations: {one('SELECT COUNT(*) FROM pairs_seen WHERE volume_spike=1')}")
+    tot = one("SELECT COUNT(*) FROM pairs_seen") or 1
+    unch = one("SELECT COUNT(*) FROM pairs_seen WHERE unchanged = 1")
+    unk = one("SELECT COUNT(*) FROM pairs_seen WHERE data_age_s IS NULL")
+    print(f"unchanged repeats: {unch} ({100 * unch / tot:.0f}%)   "
+          f"data age unknown: {unk} ({100 * unk / tot:.0f}%)")
     print("first seen via: " + ", ".join(f"{r[0]} {r[1]}" for r in q(
         "SELECT first_source, COUNT(*) FROM pairs GROUP BY 1 ORDER BY 2 DESC")))
     print("observations by source: " + ", ".join(f"{r[0]} {r[1]}" for r in q(

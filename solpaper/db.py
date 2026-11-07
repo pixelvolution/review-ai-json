@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS pairs_seen (
     pair_address  TEXT NOT NULL REFERENCES pairs(pair_address),
     observed_at   TEXT NOT NULL,   -- when we received it
     source        TEXT NOT NULL,   -- which job/provider
-    data_age_s    REAL,            -- provider/CDN cache age at receipt, if reported
+    data_age_s    REAL,            -- known minimum age at receipt (CDN Age + our cache); NULL = unknown
     price_usd     REAL,
     price_native  REAL,
     liquidity_usd REAL,
@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS pairs_seen (
     buys_m5 INTEGER, sells_m5 INTEGER, buys_h1 INTEGER, sells_h1 INTEGER,
     buys_h24 INTEGER, sells_h24 INTEGER,
     chg_m5 REAL, chg_h1 REAL, chg_h24 REAL,
-    volume_spike  INTEGER NOT NULL DEFAULT 0
+    volume_spike  INTEGER NOT NULL DEFAULT 0,
+    unchanged     INTEGER NOT NULL DEFAULT 0  -- identical to this provider's previous reading
 );
 CREATE INDEX IF NOT EXISTS pairs_seen_pair_time ON pairs_seen(pair_address, observed_at);
 CREATE INDEX IF NOT EXISTS pairs_seen_time ON pairs_seen(observed_at);
@@ -99,7 +100,15 @@ def connect(path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    migrate(conn)
     return conn
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Add columns that CREATE TABLE IF NOT EXISTS won't add to an existing table."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(pairs_seen)")}
+    if "unchanged" not in cols:
+        conn.execute("ALTER TABLE pairs_seen ADD COLUMN unchanged INTEGER NOT NULL DEFAULT 0")
 
 
 def event(conn: sqlite3.Connection, kind: str, message: str, data: dict | None = None):
