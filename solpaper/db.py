@@ -127,7 +127,12 @@ CREATE TABLE IF NOT EXISTS sell_quotes (
     amount_in         INTEGER,
     out_mint          TEXT,
     out_amount        INTEGER,
-    price_impact      REAL,
+    price_impact      REAL,             -- Jupiter-reported (cross-check); NULL if absent
+    ref_usd_in        REAL,             -- tiny reference sale (amendment A3)
+    ref_amount_in     INTEGER,
+    ref_out_amount    INTEGER,
+    measured_impact   REAL,             -- from payouts: what the decision uses
+    impact_disagrees  INTEGER NOT NULL DEFAULT 0,
     effective_vs_pool REAL,
     routes            TEXT,
     ok                INTEGER NOT NULL,
@@ -164,6 +169,12 @@ def migrate(conn: sqlite3.Connection) -> None:
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(pairs_seen)")}
     if "unchanged" not in cols:
         conn.execute("ALTER TABLE pairs_seen ADD COLUMN unchanged INTEGER NOT NULL DEFAULT 0")
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(sell_quotes)")}
+    for name, decl in [("ref_usd_in", "REAL"), ("ref_amount_in", "INTEGER"),
+                       ("ref_out_amount", "INTEGER"), ("measured_impact", "REAL"),
+                       ("impact_disagrees", "INTEGER NOT NULL DEFAULT 0")]:
+        if name not in cols:
+            conn.execute(f"ALTER TABLE sell_quotes ADD COLUMN {name} {decl}")
 
 
 def event(conn: sqlite3.Connection, kind: str, message: str, data: dict | None = None):

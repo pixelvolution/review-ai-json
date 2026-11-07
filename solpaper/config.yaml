@@ -66,8 +66,8 @@ scanner:
     refresh_tracked: 30
     filter: 30
   gt_new_pool_pages: 1    # 20 pools per page
-  track_hours: 6          # keep re-observing a pair this long after first seen
-  max_tracked: 300
+  track_hours: 12         # keep re-observing a pair this long after first seen
+  max_tracked: 1000       # 1000 pairs / 30 per call = 34 DexScreener calls per refresh
   volume_spike:           # m5 volume vs the h1 per-5-minute average
     multiple: 3.0
     min_m5_usd: 1000
@@ -86,8 +86,10 @@ filters:
   token_check_ttl_s: 600        # re-check authorities that weren't revoked
   sell_check_usd: 10            # quote selling this much (default position size)
   sell_quote_slippage_bps: 100  # slippage tolerance sent with the quote request
-  max_sell_impact: 0.03         # 3%
-  sell_quote_ttl_s: 120
+  max_sell_impact: 0.03         # 3%, judged on measured payout (amendment A3)
+  sell_reference_usd: 0.5       # tiny reference sale for the measured impact
+  impact_disagreement_tol: 0.05 # flag when Jupiter's figure is >5 points off ours
+  sell_quote_ttl_s: 180         # two Jupiter requests per check
 
 # Providers label the same venue differently; every rule, stat and export
 # uses the label on the right.

@@ -34,9 +34,29 @@ class Net:
 
     def __init__(self):
         self.mints: dict[str, dict | None] = {}
-        self.quote = (200, json.loads((FIX / "jup_quote_ok.json").read_text()))
+        self.quote = None            # (status, body) to force a reply for every quote
+        self.rate = 1e-4             # payout per token base unit
+        self.size_loss = 0.0         # extra loss on the big ($10) sale, as a fraction
+        self.reported = "0.001"      # Jupiter's priceImpactPct (None = absent)
+        self.ref_reply = None        # (status, body) to force the reference quote's reply
         self.rpc_status = 200
         self.calls = {"rpc": 0, "jup": 0}
+
+    def jupiter(self, req):
+        amount = int(req.url.params["amount"])
+        big = amount >= 10 ** 9      # $10 at the test price is 1e10 units; $0.5 is 5e8
+        if self.quote:
+            return self.quote
+        if not big and self.ref_reply:
+            return self.ref_reply
+        body = json.loads((FIX / "jup_quote_ok.json").read_text())
+        body["inAmount"] = str(amount)
+        body["outAmount"] = str(int(amount * self.rate * (1 - (self.size_loss if big else 0))))
+        if self.reported is None:
+            body.pop("priceImpactPct", None)
+        else:
+            body["priceImpactPct"] = self.reported
+        return 200, body
 
     def __call__(self, req: httpx.Request):
         if req.url.host == "api.mainnet-beta.solana.com":
@@ -51,7 +71,8 @@ class Net:
         if req.url.host == "lite-api.jup.ag":
             self.calls["jup"] += 1
             assert req.url.path == "/swap/v1/quote"
-            return httpx.Response(self.quote[0], json=self.quote[1])
+            status, body = self.jupiter(req)
+            return httpx.Response(status, json=body)
         raise AssertionError(f"unexpected host {req.url.host}")
 
 
@@ -272,7 +293,8 @@ def test_fr14_sell_route_ok_passes_with_lp_lock_not_checked(env):
     assert d.outcome == "pass"
     assert d.metrics["lp_lock"] == "not_checked"           # FR-09
     q = env["conn"].execute("SELECT * FROM sell_quotes").fetchone()
-    assert q["ok"] == 1 and q["routes"] and q["price_impact"] is not None
+    assert q["ok"] == 1 and q["routes"] and q["measured_impact"] == pytest.approx(0, abs=1e-6)
+    assert env["net"].calls["jup"] == 2          # our size + the reference sale
 
 
 def test_fr14_ec07_no_route_400_is_an_answer_not_an_outage(env):
@@ -285,21 +307,48 @@ def test_fr14_ec07_no_route_400_is_an_answer_not_an_outage(env):
 
 def test_fr14_sell_impact_too_high(env):
     add_pair(env["conn"], "A")
-    q = json.loads((FIX / "jup_quote_ok.json").read_text())
-    q["priceImpactPct"] = "0.08"
-    env["net"].quote = (200, q)
+    env["net"].size_loss = 0.08              # $10 sale pays 8% less per token
     d = decide(env, "A")["A"]
     assert d.reason == "sell_impact_too_high" and "8.0%" in d.detail
 
 
-def test_fr14_missing_price_impact_is_not_zero(env):
+def test_a3_reported_100pct_but_payout_fine_passes_and_is_flagged(env):
+    """The live CLAUDIA case: Jupiter said 100% impact, the payout said ~0%."""
+    add_pair(env["conn"], "A")
+    env["net"].reported = "1.0"
+    d = decide(env, "A")["A"]
+    assert d.outcome == "pass" and d.metrics["impact_disagrees"] is True
+    q = env["conn"].execute("SELECT price_impact, impact_disagrees FROM sell_quotes").fetchone()
+    assert q["price_impact"] == 1.0 and q["impact_disagrees"] == 1
+
+
+def test_a3_near_zero_payout_is_skipped_whatever_jupiter_reports(env):
+    """The live ZooYork case: the $10 sale pays almost nothing."""
+    add_pair(env["conn"], "A")
+    env["net"].size_loss = 0.999
+    env["net"].reported = "0.001"            # even if the field claims it's fine
+    assert decide(env, "A")["A"].reason == "sell_impact_too_high"
+
+
+def test_a3_reference_quote_outage_is_check_unavailable(env):
+    add_pair(env["conn"], "A")
+    env["net"].ref_reply = (503, {})
+    assert decide(env, "A")["A"].reason == "check_unavailable:sell_route"
+
+
+def test_fr14_missing_reported_impact_stays_unknown(env):
+    add_pair(env["conn"], "A")
+    env["net"].reported = None
+    assert decide(env, "A")["A"].outcome == "pass"   # decided on the measured payout
+    assert env["conn"].execute("SELECT price_impact FROM sell_quotes").fetchone()[0] is None
+
+
+def test_fr14_incomplete_quote_is_an_error_not_zero(env):
     add_pair(env["conn"], "A")
     q = json.loads((FIX / "jup_quote_ok.json").read_text())
-    del q["priceImpactPct"]
+    del q["outAmount"]
     env["net"].quote = (200, q)
-    d = decide(env, "A")["A"]
-    assert (d.outcome, d.reason) == ("skip", "sell_quote_error")
-    assert env["conn"].execute("SELECT price_impact FROM sell_quotes").fetchone()[0] is None
+    assert decide(env, "A")["A"].reason == "sell_quote_error"
 
 
 def test_ec07_other_client_errors_are_quote_errors_not_outages(env):
@@ -329,7 +378,7 @@ def test_fr14_quotes_are_cached_per_mint(env):
     decide(env, "A")
     env["clk"].t += 30
     decide(env, "A")
-    assert env["net"].calls["jup"] == 1
+    assert env["net"].calls["jup"] == 2          # one check (two quotes), then cached
 
 
 # ------------------------------------------------------------------ logging
@@ -365,7 +414,7 @@ def test_fr12_stats_show_skip_reasons(env, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "pairs evaluated: 3   passed: 1" in out
     assert "liquidity_below_floor" in out and "liquidity_unknown" in out
-    assert "sell-route quotes: 1" in out
+    assert "sell-route checks: 1" in out
 
 
 def test_fr13_no_threshold_literals_in_filters():

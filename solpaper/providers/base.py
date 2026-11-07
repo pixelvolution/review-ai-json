@@ -63,7 +63,8 @@ class SellRoute(Protocol):
     name: str
 
     def quote_sell(self, mint: str, decimals: int, out_mint: str, usd_amount: float,
-                   price_usd: float, price_native: float | None): ...
+                   price_usd: float, price_native: float | None, slippage_bps: int,
+                   ref_usd: float, disagree_tol: float): ...
 
 
 def f(x) -> float | None:

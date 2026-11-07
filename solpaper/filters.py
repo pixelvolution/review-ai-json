@@ -156,7 +156,8 @@ class Filters:
                  tc.mint_authority, tc.freeze_authority, json.dumps(tc.extensions)))
 
     # ---------------------------------------------------------------- sell route
-    def _sell_route(self, row, tc: TokenCheck, m: dict) -> Decision | None:
+    def _sell_route(self, row, tc: TokenCheck, m: dict) -> tuple[Decision | None, dict]:
+        """Returns (skip Decision or None, metrics including the sell check)."""
         pa, mint = row["pair_address"], row["base_mint"]
         r = self.conn.execute(
             "SELECT * FROM sell_quotes WHERE mint = ? AND checked_at > ? ORDER BY id DESC LIMIT 1",
@@ -164,35 +165,42 @@ class Filters:
         if r is None:
             if not row["price_usd"] or row["price_usd"] <= 0 or tc.decimals is None:
                 return Decision(pa, "skip", "sell_route", "price_unknown",
-                                "no price or token decimals to size the sell quote", m)
+                                "no price or token decimals to size the sell quote", m), m
             q = self.jup.quote_sell(mint, tc.decimals, row["quote_mint"],
                                     self.fc["sell_check_usd"], row["price_usd"],
-                                    row["price_native"], self.fc["sell_quote_slippage_bps"])
+                                    row["price_native"], self.fc["sell_quote_slippage_bps"],
+                                    self.fc["sell_reference_usd"],
+                                    self.fc["impact_disagreement_tol"])
             if q is None:
                 return Decision(pa, "skip", "sell_route", "check_unavailable:sell_route",
-                                "Jupiter quote unavailable (rate limit, outage)", m)
+                                "Jupiter quote unavailable (rate limit, outage)", m), m
             self.conn.execute(
                 "INSERT INTO sell_quotes (pair_address, mint, ts, checked_at, usd_in, amount_in, "
-                "out_mint, out_amount, price_impact, effective_vs_pool, routes, ok, reason) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "out_mint, out_amount, price_impact, ref_usd_in, ref_amount_in, ref_out_amount, "
+                "measured_impact, impact_disagrees, effective_vs_pool, routes, ok, reason) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (pa, mint, now_iso(), self.wall(), self.fc["sell_check_usd"], q.amount_in,
-                 row["quote_mint"], q.out_amount, q.price_impact, q.effective_vs_pool,
-                 q.routes, int(q.ok), q.reason))
+                 row["quote_mint"], q.out_amount, q.price_impact, self.fc["sell_reference_usd"],
+                 q.ref_amount_in, q.ref_out_amount, q.measured_impact, int(q.impact_disagrees),
+                 q.effective_vs_pool, q.routes, int(q.ok), q.reason))
             r = self.conn.execute("SELECT * FROM sell_quotes WHERE id = last_insert_rowid()"
                                   ).fetchone()
-        m = {**m, "sell_impact": r["price_impact"], "effective_vs_pool": r["effective_vs_pool"],
-             "routes": r["routes"]}
+        m = {**m, "measured_impact": r["measured_impact"], "reported_impact": r["price_impact"],
+             "impact_disagrees": bool(r["impact_disagrees"]),
+             "effective_vs_pool": r["effective_vs_pool"], "routes": r["routes"]}
         if not r["ok"]:
             if (r["reason"] or "").startswith("no_route:"):
                 return Decision(pa, "skip", "sell_route", "no_sell_route",
-                                f"Jupiter: {r['reason'].split(':', 1)[1]}", m)
+                                f"Jupiter: {r['reason'].split(':', 1)[1]}", m), m
             return Decision(pa, "skip", "sell_route", "sell_quote_error",
-                            f"Jupiter: {r['reason']}", m)
-        if r["price_impact"] is not None and r["price_impact"] > self.fc["max_sell_impact"]:
+                            f"Jupiter: {r['reason']}", m), m
+        if r["measured_impact"] > self.fc["max_sell_impact"]:
+            reported = ("n/a" if r["price_impact"] is None else f"{r['price_impact']:.1%}")
             return Decision(pa, "skip", "sell_route", "sell_impact_too_high",
-                            f"selling ${self.fc['sell_check_usd']} moves price "
-                            f"{r['price_impact']:.1%} > {self.fc['max_sell_impact']:.0%}", m)
-        return None
+                            f"selling ${self.fc['sell_check_usd']} pays {r['measured_impact']:.1%} "
+                            f"less per token than a ${self.fc['sell_reference_usd']} sale "
+                            f"(> {self.fc['max_sell_impact']:.0%}; Jupiter reported {reported})", m), m
+        return None, m
 
     # ---------------------------------------------------------------- main
     def evaluate(self, pairs: list[str], now: datetime | None = None) -> list[Decision]:
@@ -224,7 +232,9 @@ class Filters:
                 decisions[pa] = Decision(pa, "skip", "token", "check_unavailable:token",
                                          "Solana RPC unavailable; not assumed safe", m)
                 continue
-            d = token_decision(pa, tc, self.fc, m) or self._sell_route(row, tc, m)
+            d = token_decision(pa, tc, self.fc, m)
+            if d is None:
+                d, m = self._sell_route(row, tc, m)
             decisions[pa] = d or Decision(pa, "pass", metrics={**m, "lp_lock": "not_checked"})
         for d in decisions.values():
             self._log(d)

@@ -71,11 +71,12 @@ def main() -> int:
         for r in q("SELECT reason, COUNT(*) n FROM filter_state WHERE outcome = 'skip' "
                    "GROUP BY reason ORDER BY n DESC"):
             print(f"  {r['reason']:32s} {r['n']:5d}  {100 * r['n'] / total:5.1f}%")
-        sq = q("SELECT COUNT(*) n, SUM(ok) ok, AVG(CASE WHEN ok THEN price_impact END) imp, "
-               "AVG(CASE WHEN ok THEN effective_vs_pool END) eff FROM sell_quotes")[0]
+        sq = q("SELECT COUNT(*) n, SUM(ok) ok, AVG(CASE WHEN ok THEN measured_impact END) imp, "
+               "SUM(impact_disagrees) dis FROM sell_quotes")[0]
         if sq["n"]:
-            print(f"sell-route quotes: {sq['n']} ({sq['ok']} had a route)   avg price impact "
-                  f"{(sq['imp'] or 0):.2%}   avg sell price vs pool {(sq['eff'] or 0):+.2%}")
+            imp = "n/a" if sq["imp"] is None else f"{sq['imp']:.2%}"
+            print(f"sell-route checks: {sq['n']} ({sq['ok']} had a route)   avg measured impact "
+                  f"{imp}   Jupiter's figure disagreed: {sq['dis'] or 0}")
 
     print("\n== Sample of captured pairs (latest observation each)")
     rows = q("""SELECT p.name, p.dex, p.pair_created_at, s.liquidity_usd, s.vol_m5, s.vol_h1,
