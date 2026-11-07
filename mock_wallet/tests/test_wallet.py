@@ -52,6 +52,15 @@ def test_reopening_keeps_the_runs_original_config(db):
     assert w.run_id == 1 and w.balance == Dec("50")
 
 
+def test_accepts_numpy_prices(db):
+    np = pytest.importorskip("numpy")
+    w = make(db)
+    pos = w.open_position("X", np.float64(0.5), np.float64(10))
+    w.mark({"X": np.float64(0.6)})
+    w.close_position(pos["position_id"], np.float32(0.55))
+    assert ledger_sum(w) == w.balance
+
+
 # --- overdraw --------------------------------------------------------------
 
 def test_wallet_cannot_overdraw(db):

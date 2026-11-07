@@ -50,8 +50,8 @@ def D(value) -> Decimal:
     """Convert int/str/float/Decimal to Decimal without float artefacts."""
     if isinstance(value, Decimal):
         return value
-    if isinstance(value, float):
-        return Decimal(repr(value))
+    if isinstance(value, float):  # includes numpy.float64, whose repr isn't a number
+        return Decimal(repr(float(value)))
     return Decimal(str(value))
 
 
