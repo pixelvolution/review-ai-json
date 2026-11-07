@@ -502,3 +502,41 @@ def test_pre_a3_failed_rows_are_requoted_too(env):
         (env["clk"].t,))
     d = decide(env, "A")["A"]
     assert d.outcome == "pass" and env["net"].calls["jup"] == 2
+
+
+# ------------------------------------------------------------------ A6: sell-check budget
+
+def test_a6_one_sell_check_per_pass_others_wait(env):
+    for p in "ABCDE":
+        add_pair(env["conn"], p)
+    d = decide(env, *"ABCDE")
+    assert env["net"].calls["jup"] == 2                  # one check = two quotes
+    reasons = sorted(x.reason or "pass" for x in d.values())
+    assert reasons == ["pass", "sell_check_pending", "sell_check_pending",
+                       "sell_check_pending", "sell_check_pending"]
+
+
+def test_a6_unquoted_pairs_go_first_and_quotes_are_reused(env):
+    for p in "AB":
+        add_pair(env["conn"], p)
+    first = {k for k, v in decide(env, "A", "B").items() if v.outcome == "pass"}
+    env["clk"].t += 31
+    second = decide(env, "A", "B")
+    assert all(v.outcome == "pass" for v in second.values())   # 2nd pair got its turn
+    assert env["net"].calls["jup"] == 4
+    env["clk"].t += env["cfg"]["filters"]["sell_quote_ttl_s"]   # both stale, under max age
+    third = decide(env, "A", "B")
+    assert all(v.outcome == "pass" for v in third.values())    # one refreshed, one reused
+    assert any("quote_age_s" in v.metrics for v in third.values())
+    assert first
+
+
+def test_a6_quote_older_than_max_age_is_not_used(env):
+    for p in "AB":
+        add_pair(env["conn"], p)
+    decide(env, "A", "B")
+    env["clk"].t += 31
+    decide(env, "A", "B")                                  # both have quotes now
+    env["clk"].t += env["cfg"]["filters"]["sell_quote_max_age_s"] + 1
+    d = decide(env, "A", "B")
+    assert sorted(x.reason or "pass" for x in d.values()) == ["pass", "sell_check_pending"]

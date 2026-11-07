@@ -293,3 +293,17 @@ def test_sf13_stats_lead_with_sample_size_and_window(env):
     first = out.splitlines()[0]
     assert first.startswith("STUDY SAMPLE: 1 launches") and "window:" in first
     assert "not a tradable edge" in out or "Nothing here is a tradable edge" in out
+
+
+def test_curve_consistency_is_not_judged_for_non_sol_pairs(env):
+    add_pair(env["conn"], FRESH, dex="pump-fun")
+    env["conn"].execute("UPDATE pairs SET quote_mint = 'PRIVACYmint111' WHERE pair_address = ?",
+                        (FRESH,))
+    observe(env["conn"], FRESH, T0 + timedelta(minutes=1), native=1.0)
+    r = runner(env)
+    r.tick()
+    env["clk"].t = (T0 + timedelta(minutes=5)).timestamp() - 10
+    r.tick()
+    f = env["conn"].execute("SELECT curve_consistent, missing FROM launch_features").fetchone()
+    assert f["curve_consistent"] is None
+    assert json.loads(f["missing"])["curve_consistent"] == "pair not priced in SOL"

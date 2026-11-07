@@ -12,6 +12,8 @@ from datetime import datetime
 from .cohort import iso, parse_ts, source_for
 from .curve import CurveState
 
+SOL_MINT = "So11111111111111111111111111111111111111112"
+
 DEFERRED = {
     "unique_wallets": "study phase 2b (trade records, after main Phase 3)",
     "trades_per_wallet": "study phase 2b (trade records, after main Phase 3)",
@@ -81,7 +83,12 @@ def compute(conn, cfg: dict, member, window_min: int, data_cutoff: datetime,
                  curve_virtual_tokens=curve.virtual_tokens, curve_real_tokens=curve.real_tokens,
                  curve_real_sol=curve.real_sol)
         native = rows[-1]["price_native"] if rows else None
-        if curve.price_sol and native:
+        quote = conn.execute("SELECT quote_mint FROM pairs WHERE pair_address = ?",
+                             (member["pair_address"],)).fetchone()
+        if quote is None or quote["quote_mint"] != SOL_MINT:
+            # The curve price is in SOL; a non-SOL pair's price can't be compared.
+            missing["curve_consistent"] = "pair not priced in SOL"
+        elif curve.price_sol and native:
             f["curve_consistent"] = int(
                 abs(curve.price_sol / native - 1) <= cfg["study"]["curve_price_tol"])
     elif member["source"] == "pumpfun_curve":

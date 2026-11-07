@@ -156,16 +156,31 @@ class Filters:
                  tc.mint_authority, tc.freeze_authority, json.dumps(tc.extensions)))
 
     # ---------------------------------------------------------------- sell route
-    def _sell_route(self, row, tc: TokenCheck, m: dict) -> tuple[Decision | None, dict]:
-        """Returns (skip Decision or None, metrics including the sell check)."""
-        pa, mint = row["pair_address"], row["base_mint"]
-        # Rows saved before amendment A3 (no reference sale, so ref_usd_in is NULL)
-        # are re-quoted, never decided on, whether they succeeded or failed.
-        r = self.conn.execute(
+    def _latest_quote(self, mint: str):
+        """Newest usable quote within max age. Rows saved before amendment A3 (no
+        reference sale, ref_usd_in NULL) are never used, whether ok or failed."""
+        return self.conn.execute(
             "SELECT * FROM sell_quotes WHERE mint = ? AND checked_at > ? "
             "AND ref_usd_in IS NOT NULL ORDER BY id DESC LIMIT 1",
-            (mint, self.wall() - self.fc["sell_quote_ttl_s"])).fetchone()
-        if r is None:
+            (mint, self.wall() - self.fc["sell_quote_max_age_s"])).fetchone()
+
+    def _sell_route(self, row, tc: TokenCheck, m: dict,
+                    may_quote: bool) -> tuple[Decision | None, dict]:
+        """Returns (skip Decision or None, metrics including the sell check).
+
+        Only pairs chosen for this pass (``may_quote``) send new quotes; the rest
+        decide on their last quote if it's within max age, else wait (A6).
+        """
+        pa, mint = row["pair_address"], row["base_mint"]
+        r = self._latest_quote(mint)
+        fresh = r is not None and self.wall() - r["checked_at"] <= self.fc["sell_quote_ttl_s"]
+        if r is not None and not fresh and not may_quote:
+            m = {**m, "quote_age_s": round(self.wall() - r["checked_at"])}
+        elif r is None and not may_quote:
+            return Decision(pa, "skip", "sell_route", "sell_check_pending",
+                            f"waiting for a sell quote ({self.fc['sell_checks_per_pass']} per "
+                            f"filter pass under Jupiter's free limit)", m), m
+        elif not fresh:
             if not row["price_usd"] or row["price_usd"] <= 0 or tc.decimals is None:
                 return Decision(pa, "skip", "sell_route", "price_unknown",
                                 "no price or token decimals to size the sell quote", m), m
@@ -227,6 +242,7 @@ class Filters:
                 self._store_tokens(fetched)
                 tokens.update(fetched)
 
+        to_quote = []
         for row in survivors:
             pa = row["pair_address"]
             m = {"dex": dex_label(self.cfg, row["dex"]), "liquidity_usd": row["liquidity_usd"]}
@@ -236,9 +252,24 @@ class Filters:
                                          "Solana RPC unavailable; not assumed safe", m)
                 continue
             d = token_decision(pa, tc, self.fc, m)
-            if d is None:
-                d, m = self._sell_route(row, tc, m)
-            decisions[pa] = d or Decision(pa, "pass", metrics={**m, "lp_lock": "not_checked"})
+            if d is not None:
+                decisions[pa] = d
+            else:
+                to_quote.append((row, tc, m))
+
+        # Jupiter's free limit allows only a few sell checks a minute. Refresh in
+        # priority order: no quote yet first, then the oldest quote (A6).
+        ages = []
+        for row, _, _ in to_quote:
+            q = self._latest_quote(row["base_mint"])
+            ages.append(float("inf") if q is None else self.wall() - q["checked_at"])
+        due = [i for i, a in enumerate(ages) if a > self.fc["sell_quote_ttl_s"]]
+        due.sort(key=lambda i: -ages[i])
+        chosen = set(due[:self.fc["sell_checks_per_pass"]])
+        for i, (row, tc, m) in enumerate(to_quote):
+            d, m = self._sell_route(row, tc, m, i in chosen)
+            decisions[row["pair_address"]] = d or Decision(
+                row["pair_address"], "pass", metrics={**m, "lp_lock": "not_checked"})
         for d in decisions.values():
             self._log(d)
         return list(decisions.values())

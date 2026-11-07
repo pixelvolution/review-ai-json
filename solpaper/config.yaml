@@ -90,7 +90,9 @@ filters:
   max_sell_impact: 0.03         # 3%, judged on measured payout (amendment A3)
   sell_reference_usd: 0.5       # tiny reference sale for the measured impact
   impact_disagreement_tol: 0.05 # flag when Jupiter's figure is >5 points off ours
-  sell_quote_ttl_s: 180         # two Jupiter requests per check
+  sell_quote_ttl_s: 180         # a quote older than this is due for a refresh
+  sell_quote_max_age_s: 600     # decide on a quote up to this old while it waits its turn
+  sell_checks_per_pass: 1       # Jupiter allows ~6 checks/min; keeps each pass to ~5 s
 
 # Providers label the same venue differently; every rule, stat and export
 # uses the label on the right.
