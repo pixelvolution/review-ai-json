@@ -187,6 +187,8 @@ def main(argv=None) -> int:
         sc.stop = True
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
+    if hasattr(signal, "SIGBREAK"):        # Windows: the portal's Stop button sends Ctrl+Break
+        signal.signal(signal.SIGBREAK, _stop)
     sc.run(a.minutes)
     return 0
 

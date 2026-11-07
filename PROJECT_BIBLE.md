@@ -16,6 +16,7 @@
 | 2026-11-07 | **Discovery: GeckoTerminal `new_pools` + trending; DexScreener boosts + profiles. Tier-1 quotes: DexScreener batch pairs (30/call), GeckoTerminal for pairs DexScreener lacks** | DexScreener has no "newest pairs" endpoint, and brand-new pools are often missing from it for their first minutes. | Claude |
 | 2026-11-07 | **Request budget = even pacing at a safety share of the published limit**, exponential backoff on 429/5xx/network errors, every outage logged in `data_gaps` | The scheduler slows before any cap instead of bursting into it; nothing is fabricated during a gap. | Claude |
 | 2026-11-07 | **Cache keeps the latest response per request key**; the normalized history lives in `pairs_seen` | Keeping every raw response would be over 1 GB/day at the current polling rate. | Claude |
+| 2026-11-07 | **Portal = stdlib HTTP server on 127.0.0.1 + a tiny PyInstaller launcher** | No new dependencies. The .exe holds only `launcher.py` and runs the repo's `.venv`, so `git pull` updates the app without rebuilding. POST buttons need a per-launch token header; a Host-header check blocks DNS rebinding; one portal per machine (`logs/portal.port` + ping) so a second launch can't double the API budget with a second scanner. | cornelas / Claude |
 | 2026-11-07 | **Cloud reporting target: OPEN** (Cloudflare was named; Project Uploader runs on Bunny) | See `specs/cloud-reporting/CLARIFY.md`. Nothing is built until it's answered. | - |
 
 ## Completed Features
@@ -27,6 +28,7 @@
 | 2026-11-07 | Suggestion + validation pipeline (prototype) | MCP `suggest_change`, replay + holdout validation, multiple-testing guard, shadow mode, logged config changes. 40 tests. | `mock_wallet/validate_suggestion.py`, `mcp_server.py`, `control.py` |
 | 2026-11-07 | solpaper Phase 3: research | Trade records (GeckoTerminal, schema in TRADE_SCHEMA.md), wash score + engine wash stage (budgeted), top-10 holder concentration (read-only RPC; refused keyless in the cloud), shared honest fill model, `python -m solpaper.research` with buckets and multiple-testing records. | `solpaper/fills.py`, `wash.py`, `research.py` |
 | 2026-11-07 | solpaper Phase 4: mock wallet + paper executor + risk | Wallet ported with `wallet_` tables; executor as the scanner's `trade` job (entries only after every filter passes; delay, CP impact, fees, tips, honeypots; TP/SL/time/liquidity exits; kill switch halts). 134 tests. | `solpaper/wallet.py`, `executor.py`, `reset.py` |
+| 2026-11-07 | solpaper portal + one-click launcher | Browser control panel: start/stop scanner and study, wallet, equity curve, positions, signals, trades, filters, study, gaps, logs, Export CSVs, Quit. `Setup solpaper.bat`, `Start solpaper.bat`, `build_exe.bat` -> `solpaper.exe`. Read-only DB access (`mode=ro`). 13 tests (163 total). | `solpaper/portal/`, `launcher.py`, `*.bat` |
 | 2026-11-07 | solpaper Phase 1: scanner, logger, cache, request budget | Read-only discovery and re-quoting of new Solana pairs into `pairs`/`pairs_seen`; per-provider pacing, backoff and gap logging; timestamped response cache; signing guard test. 11 tests. | `solpaper/` |
 
 ## Incidents & Resolutions
@@ -65,5 +67,6 @@
 - **Missing is `None`, never `0`.** Provider parsers return `None` for absent numbers; filters must decide what unknown means.
 - **A provider failure returns `None`** and is logged as a gap. Callers never substitute a value.
 - **Money is integer micro-dollars** in SQLite and `Decimal` in Python.
+- **The portal never writes to the database.** It opens SQLite read-only; the only actions are starting/stopping processes, exporting CSVs and quitting.
 - **Secrets never enter git**: `.secrets/`, `secrets.json`, `*.env`, `*.key` are gitignored.
 - **solpaper uses its own infrastructure.** It never touches another project's database, storage or edge script.

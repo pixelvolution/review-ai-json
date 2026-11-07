@@ -24,8 +24,41 @@ Built in phases, each reviewed before the next.
 | 6 | Suggestion and validation pipeline | |
 | 7 | Morning report, systemd units, full README | |
 
+## The easy way: the portal (Windows)
+
+One window in your browser to start and stop everything, with the mock
+wallet, open positions, trades, signals, filters, study progress and logs.
+
+1. Double-click **`Setup solpaper.bat`** once. It creates `.venv` and installs
+   the packages. Skip this if you already have a `.venv` in the repo folder.
+2. Double-click **`Start solpaper.bat`**. The portal opens at
+   http://127.0.0.1:8765 and starts the scanner and the study. Keep the black
+   window open: closing it, or pressing **Quit** in the portal, stops everything.
+3. Optional, for a real `.exe`: double-click **`build_exe.bat`** once. It
+   builds `solpaper.exe` into the repo folder (PyInstaller, about a minute).
+   Double-clicking `solpaper.exe` starts everything with no black window, or
+   just reopens the page if it's already running. Use **Quit** in the portal
+   to stop it. Right-click the .exe and choose *Send to > Desktop (create
+   shortcut)* for a desktop icon.
+
+The .exe is only a launcher: it runs the code in this folder with `.venv`, so a
+`git pull` updates the app without rebuilding. The exe must stay in the repo folder.
+
+Notes:
+
+- The portal only listens on 127.0.0.1, so other machines can't reach it. Its
+  buttons need a token that changes every launch, so other websites can't press them.
+- Running a second copy doesn't start a second scanner; it opens the running one.
+- Logs: `logs\scanner.log`, `logs\study.log`, `logs\portal.log`.
+- **Export CSVs** writes the same files as `python -m solpaper.export`.
+- When the portal is started by the .exe, Stop may have to force-close the
+  scanner rather than let it finish its step (no console to send Ctrl+Break
+  to). SQLite keeps the database consistent either way; at most the step in
+  progress is lost.
+
 ## Commands
 
+    python -m solpaper.portal --autostart   # the portal (what the .bat and .exe run)
     python -m solpaper.scanner              # scanner + filters + paper trading (until stopped)
     python -m solpaper.study run            # Launch Outcome Study, in a second window
     python -m solpaper.stats                # capture, filters, paper-trading summary

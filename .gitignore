@@ -17,3 +17,10 @@ secrets.json
 *.key
 exports/
 solpaper/exports/
+
+# solpaper portal / launcher
+logs/
+build/
+dist/
+solpaper.exe
+*.spec

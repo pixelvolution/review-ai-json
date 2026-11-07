@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>solpaper portal</title>
+<style>
+:root { --bg:#f5f6f8; --fg:#15181d; --muted:#5f6876; --card:#fff; --line:#e1e4e9;
+        --ok:#147a3a; --bad:#b42318; --warn:#9a6700; --accent:#2f6fec; --chip:#eef1f5; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#0f1114; --fg:#e6e8ec; --muted:#97a0ad; --card:#171a1f; --line:#2a2f37;
+          --ok:#5fd38d; --bad:#ff8a80; --warn:#f2c14e; --accent:#7aa7ff; --chip:#222730; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, "Segoe UI", sans-serif; }
+header { padding:14px 20px; border-bottom:1px solid var(--line); background:var(--card);
+         display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+header h1 { font-size:17px; margin:0 12px 0 0; }
+.sim { font-size:12px; color:var(--warn); }
+main { max-width:1200px; margin:0 auto; padding:16px 20px 40px; display:grid; gap:14px;
+       grid-template-columns:repeat(auto-fit, minmax(340px, 1fr)); }
+section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; min-width:0; }
+section.wide { grid-column:1 / -1; }
+h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 10px; }
+.proc { display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--line); border-radius:8px; }
+.dot { width:9px; height:9px; border-radius:50%; background:var(--bad); }
+.dot.on { background:var(--ok); }
+button { font:inherit; border:1px solid var(--line); background:var(--chip); color:var(--fg);
+         border-radius:6px; padding:5px 12px; cursor:pointer; }
+button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+button:disabled { opacity:.5; cursor:default; }
+.cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:8px; }
+.card { border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+.k { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+.v { font-size:18px; font-weight:600; font-variant-numeric:tabular-nums; }
+.pos { color:var(--ok); } .neg { color:var(--bad); }
+table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
+th { font-size:11px; color:var(--muted); font-weight:500; }
+.scroll { overflow-x:auto; }
+.muted { color:var(--muted); }
+.banner { background:var(--chip); border-radius:8px; padding:8px 10px; margin-bottom:10px; }
+.banner.bad { color:var(--bad); }
+pre { margin:0; max-height:260px; overflow:auto; font:12px/1.4 ui-monospace, Consolas, monospace;
+      background:var(--chip); border-radius:8px; padding:8px; white-space:pre-wrap; }
+.tabs button.sel { background:var(--accent); color:#fff; border-color:var(--accent); }
+svg { width:100%; height:160px; display:block; }
+.bars div { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>solpaper</h1>
+  <span class="sim">Simulator: paper money only. No keys, no wallet, no real orders.</span>
+  <span style="flex:1"></span>
+  <div class="proc"><span class="dot" id="dot-scanner"></span><b>Scanner</b>
+    <button id="btn-scanner" onclick="toggle('scanner')">Start</button></div>
+  <div class="proc"><span class="dot" id="dot-study"></span><b>Study</b>
+    <button id="btn-study" onclick="toggle('study')">Start</button></div>
+  <button onclick="doExport()">Export CSVs</button>
+  <button onclick="post('/api/open-exports')">Open exports folder</button>
+  <button onclick="quitPortal()" title="Stops the scanner and study and closes the portal">Quit</button>
+</header>
+<main>
+  <section class="wide"><h2>Mock wallet</h2><div id="wallet-banner"></div><div class="cards" id="wallet"></div></section>
+  <section><h2>Equity curve</h2><div id="equity"><span class="muted">No wallet snapshots yet.</span></div></section>
+  <section><h2>Paper trades</h2><div class="cards" id="tradesum"></div><p class="muted" id="tradenote"></p></section>
+  <section class="wide"><h2>Open positions</h2><div class="scroll" id="positions"></div></section>
+  <section><h2>Signal feed</h2><div class="scroll" id="signals"></div></section>
+  <section><h2>Closed trades</h2><div class="scroll" id="trades"></div></section>
+  <section><h2>Filters</h2><div id="filters"></div></section>
+  <section><h2>Launch study</h2><div id="study"></div></section>
+  <section><h2>Scanner and data gaps</h2><div id="capture"></div></section>
+  <section class="wide"><h2>Logs</h2>
+    <div class="tabs" style="margin-bottom:8px"><button id="tab-scanner" class="sel" onclick="setLog('scanner')">Scanner</button>
+      <button id="tab-study" onclick="setLog('study')">Study</button></div>
+    <pre id="log">No log yet. Start the scanner.</pre></section>
+</main>
+<script>
+const TOKEN = "__TOKEN__";
+let logName = "scanner", lastProcs = {};
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const usd = v => v == null ? "-" : (v < 0 ? "-$" : "$") + Math.abs(v).toFixed(2);
+const pct = v => v == null ? "-" : (v * 100).toFixed(1) + "%";
+const cls = v => v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "";
+function card(k, v, c = "") { return `<div class="card"><div class="k">${esc(k)}</div><div class="v ${c}">${v}</div></div>`; }
+function table(cols, rows) {
+  if (!rows.length) return '<span class="muted">Nothing yet.</span>';
+  return `<table><tr>${cols.map(c => `<th>${esc(c[0])}</th>`).join("")}</tr>` +
+    rows.map(r => `<tr>${cols.map(c => `<td>${c[1](r)}</td>`).join("")}</tr>`).join("") + "</table>";
+}
+async function post(path) {
+  const r = await fetch(path, {method: "POST", headers: {"X-Portal-Token": TOKEN}});
+  return r.json();
+}
+async function toggle(name) {
+  const b = $("btn-" + name); b.disabled = true;
+  await post(`/api/${lastProcs[name] && lastProcs[name].running ? "stop" : "start"}/${name}`);
+  b.disabled = false; refresh();
+}
+async function doExport() {
+  const r = await post("/api/export");
+  const files = Object.entries(r.files || {}).filter(([, n]) => n != null).map(([f, n]) => `${f}: ${n} rows`);
+  alert(`Exported to ${r.folder}\n\n${files.join("\n")}\n\nREADME.txt explains each file and the caveats.`);
+}
+async function quitPortal() {
+  if (!confirm("Stop the scanner and study and close the portal?")) return;
+  await post("/api/quit");
+  document.body.innerHTML = '<p style="padding:2em">solpaper is stopped. You can close this tab. ' +
+    'Double-click solpaper.exe (or Start solpaper.bat) to start it again.</p>';
+}
+function setLog(n) { logName = n; $("tab-scanner").classList.toggle("sel", n === "scanner");
+  $("tab-study").classList.toggle("sel", n === "study"); refreshLog(); }
+function drawEquity(pts) {
+  if (pts.length < 2) return '<span class="muted">Needs at least two wallet snapshots.</span>';
+  const ys = pts.map(p => p.equity), lo = Math.min(...ys), hi = Math.max(...ys), span = (hi - lo) || 1;
+  const W = 600, H = 150, x = i => 30 + i * (W - 40) / (pts.length - 1), y = v => 10 + (H - 30) * (1 - (v - lo) / span);
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.equity).toFixed(1)}`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="equity curve">
+    <text x="0" y="${y(hi) + 4}" font-size="10" fill="currentColor" opacity=".6">${usd(hi)}</text>
+    <text x="0" y="${y(lo) + 4}" font-size="10" fill="currentColor" opacity=".6">${usd(lo)}</text>
+    <path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2"/></svg>
+    <div class="muted">${pts.length} snapshots, ${esc(pts[0].ts.slice(11, 19))} to ${esc(pts[pts.length - 1].ts.slice(11, 19))} UTC</div>`;
+}
+async function refresh() {
+  let a;
+  try { a = await (await fetch("/api/all")).json(); } catch (e) { return; }
+  lastProcs = a.processes;
+  for (const n of ["scanner", "study"]) {
+    const p = a.processes[n] || {}; $("dot-" + n).classList.toggle("on", !!p.running);
+    $("btn-" + n).textContent = p.running ? "Stop" : "Start";
+  }
+  const s = a.summary || {}, w = s.wallet;
+  if (w) {
+    $("wallet-banner").innerHTML = w.status === "cooked"
+      ? `<div class="banner bad"><b>COOKED</b>: ${esc(w.cooked_reason)}. Trading has stopped. Run <code>python reset.py</code> to start run #${w.run + 1}.</div>` : "";
+    $("wallet").innerHTML = card("Run", "#" + w.run) + card("Status", w.status.toUpperCase(), w.status === "alive" ? "pos" : "neg") +
+      card("Start", usd(w.start)) + card("Cash balance", usd(w.balance)) + card("Open positions", usd(w.open_value)) +
+      card("Equity", usd(w.equity)) + card("Vault", usd(w.vault)) + card("Peak", usd(w.peak)) +
+      card("Drawdown now", pct(w.drawdown), w.drawdown > 0.15 ? "neg" : "") + card("Worst drawdown", pct(w.worst_drawdown));
+  } else { $("wallet").innerHTML = '<span class="muted">No wallet run yet. It starts with the scanner\'s first trade check.</span>'; }
+  $("equity").innerHTML = drawEquity(a.equity || []);
+  const t = s.trades;
+  if (t) {
+    $("tradesum").innerHTML = card("Trades", t.total) + card("Closed", t.closed) + card("Net P&L", usd(t.pnl), cls(t.pnl)) +
+      card("Win rate", t.closed ? pct(t.wins / t.closed) : "-") + card("Fees + tips", usd(t.fees + t.tips));
+    $("tradenote").textContent = t.closed < 50 ? `${t.closed} closed trades is far too few to judge anything.` : "";
+  }
+  $("positions").innerHTML = table([["Coin", r => esc(r.name)], ["Status", r => esc(r.status)], ["Size", r => usd(r.notional)],
+    ["Entry", r => r.entry_mid ?? "-"], ["Mark", r => r.mark_price ?? "-"], ["Move", r => `<span class="${cls(r.move)}">${pct(r.move)}</span>`],
+    ["Exit trigger", r => esc(r.exit_reason || "")], ["Filled (UTC)", r => esc(r.entry_fill || "")]], a.positions || []);
+  $("signals").innerHTML = table([["UTC", r => esc(r.time)], ["Kind", r => esc(r.kind)], ["Coin", r => esc(r.name)],
+    ["Reason", r => esc(r.reason)]], a.signals || []);
+  $("trades").innerHTML = table([["Coin", r => esc(r.name)], ["Result", r => esc(r.status)], ["Exit", r => esc(r.exit_reason || "")],
+    ["P&L", r => `<span class="${cls(r.pnl)}">${usd(r.pnl)}</span>`], ["UTC", r => esc(r.exit_fill || "")]], a.trades || []);
+  const f = s.filters;
+  $("filters").innerHTML = f ? `<p>${f.passed} of ${f.evaluated} pairs pass every filter right now.</p><div class="bars">` +
+    f.reasons.map(r => `<div><span>${esc(r.reason)}</span><b>${r.n}</b></div>`).join("") + "</div>" : '<span class="muted">No filter decisions yet.</span>';
+  const st = s.study;
+  $("study").innerHTML = st ? `<p>${st.launches} launches, ${st.sampled} sampled, ${st.features} feature snapshots, ${st.gaps} gaps.</p><div class="bars">` +
+    (st.outcomes.length ? st.outcomes.map(r => `<div><span>${esc(r.label)}</span><b>${r.n}</b></div>`).join("") : '<span class="muted">No outcomes yet (first checkpoint is 1 hour after a launch).</span>') +
+    '</div><p class="muted">Findings need days of data. Nothing here is a tradable edge.</p>' : '<span class="muted">The study has not run yet. Press Start next to Study.</span>';
+  const c = s.capture;
+  $("capture").innerHTML = (c ? `<p>${c.pairs} pairs, ${c.observations} readings. Last reading: ${esc((c.last_observation || "-").slice(11, 19))} UTC.</p>` : "") +
+    (s.gaps_open ? `<p class="neg">${s.gaps_open} data source(s) currently backing off after errors.</p>` : '<p class="pos">No open data gaps.</p>') +
+    table([["Provider", r => esc(r.provider)], ["Started", r => esc((r.started_at || "").slice(11, 19))],
+      ["Ended", r => esc(r.ended_at ? r.ended_at.slice(11, 19) : "ongoing")], ["Status", r => esc(r.last_status ?? "")]], s.gaps || []);
+}
+async function refreshLog() {
+  try { const r = await (await fetch(`/api/logs?name=${logName}`)).json();
+    const el = $("log"), atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+    el.textContent = r.lines.length ? r.lines.join("\n") : `No ${logName} log yet.`;
+    if (atEnd) el.scrollTop = el.scrollHeight; } catch (e) {}
+}
+refresh(); refreshLog(); setInterval(refresh, 3000); setInterval(refreshLog, 3000);
+</script>
+</body>
+</html>

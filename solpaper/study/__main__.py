@@ -41,6 +41,8 @@ def main(argv=None) -> int:
     stop = {"now": False}
     signal.signal(signal.SIGINT, lambda *_: stop.update(now=True))
     signal.signal(signal.SIGTERM, lambda *_: stop.update(now=True))
+    if hasattr(signal, "SIGBREAK"):        # Windows: the portal's Stop button sends Ctrl+Break
+        signal.signal(signal.SIGBREAK, lambda *_: stop.update(now=True))
     event(runner.conn, "study_start", f"study run {runner.run_id} started")
     end = None if a.minutes is None else time.monotonic() + a.minutes * 60
     while not stop["now"] and (end is None or time.monotonic() < end):
