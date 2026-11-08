@@ -58,7 +58,8 @@ class Scanner:
         self.clock = clock
         self.next_run: dict[str, float] = {}
         self.stop = False
-        self.watching = False
+        self._watch_thread = None
+        self._watch_lost_noted = False
 
     # ---------------------------------------------------------------- logging
     def record(self, snaps: list[PairSnapshot]) -> int:
@@ -148,6 +149,17 @@ class Scanner:
         snaps = src.discover(job)
         return None if snaps is None else self.record(snaps)
 
+    @property
+    def watching(self) -> bool:
+        """The position watcher runs the executor while its thread is alive. If it ever
+        dies, the 10 s trade job takes over again instead of trading silently stopping."""
+        alive = self._watch_thread is not None and self._watch_thread.is_alive()
+        if self._watch_thread is not None and not alive and not self._watch_lost_noted:
+            self._watch_lost_noted = True
+            log.error("position watcher stopped; paper trading falls back to the 10 s trade job")
+            event(self.conn, "job_error", "position watcher stopped; trade job took over")
+        return alive
+
     def tick(self):
         for job, every in self.cfg["scanner"]["intervals_s"].items():
             if job == "trade" and self.watching:
@@ -173,8 +185,8 @@ class Scanner:
         event(self.conn, "scanner_start", "scanner started", {"minutes": minutes})
         if self.cfg.get("watch", {}).get("enabled"):
             from .watch import start_thread
-            start_thread(self.cfg, lambda: self.stop or (end is not None and self.clock() >= end))
-            self.watching = True
+            self._watch_thread = start_thread(
+                self.cfg, lambda: self.stop or (end is not None and self.clock() >= end))
         while not self.stop and (end is None or self.clock() < end):
             self.tick()
             time.sleep(self.cfg["scanner"]["tick_s"])

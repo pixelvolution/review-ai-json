@@ -257,7 +257,11 @@ class PositionWatcher:
 def start_thread(cfg: dict, should_stop) -> threading.Thread:
     """Run the watcher (with the paper executor) in its own thread, own DB connection
     and own request pacing, so slow scanner jobs can't delay a stop-loss check."""
-    t = threading.Thread(target=lambda: PositionWatcher(cfg).run(should_stop),
-                         name="position-watch", daemon=True)
+    def target():
+        try:
+            PositionWatcher(cfg).run(should_stop)
+        except Exception:  # noqa: BLE001 - logged; the scanner sees the thread end and takes over
+            log.exception("position watcher crashed")
+    t = threading.Thread(target=target, name="position-watch", daemon=True)
     t.start()
     return t

@@ -233,3 +233,21 @@ def test_executor_fills_and_stops_on_on_chain_marks_not_lagging_provider_data(tm
     ex.tick()
     t = conn.execute("SELECT * FROM trades").fetchone()
     assert t["status"] == "closed" and t["exit_mid"] == 0.68 and t["exit_delay_s"] == pytest.approx(6)
+
+
+def test_if_the_watcher_dies_the_scanner_trades_again(tmp_path, monkeypatch):
+    import solpaper.watch as watch
+    from solpaper.scanner import Scanner
+
+    class Broken:
+        def __init__(self, cfg):
+            raise RuntimeError("cannot start")
+    monkeypatch.setattr(watch, "PositionWatcher", Broken)
+    cfg = load_config()
+    cfg["db_path"] = str(tmp_path / "s.db")
+    sc = Scanner(cfg)
+    sc._watch_thread = watch.start_thread(cfg, lambda: False)
+    sc._watch_thread.join(5)
+    assert sc.watching is False                       # trade job runs again
+    assert sc.conn.execute("SELECT COUNT(*) FROM events WHERE kind = 'job_error' AND "
+                           "message LIKE 'position watcher stopped%'").fetchone()[0] == 1
