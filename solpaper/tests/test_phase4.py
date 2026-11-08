@@ -267,3 +267,58 @@ def test_exit_into_a_drained_pool_closes_at_zero_instead_of_hanging(env):
     t = trade(env)
     assert t["status"] == "closed" and t["exit_reason"] == "liquidity_collapse"
     assert t["pnl"] == pytest.approx(-(10 + 0.025 + 0.05) - 0.05, abs=1e-3)
+
+
+# ------------------------------------------------------------------ fixes from the first live run
+
+def test_a_drained_pool_is_a_liquidity_collapse_even_when_the_price_spikes(env):
+    # FNUT, 2026-11-08: price +147% while liquidity went from $21k to $0.02.
+    add_pair(env["conn"], "A")
+    ex = env["make"]()
+    ex.tick()
+    obs(env["conn"], "A", 10, 1.0, liq=21_000)
+    at(env, 15)
+    ex.tick()
+    obs(env["conn"], "A", 40, 2.47, liq=0.02)
+    at(env, 41)
+    ex.tick()
+    assert trade(env)["exit_reason"] == "liquidity_collapse"
+
+
+def _cook_with(env, **over):
+    add_pair(env["conn"], "A")
+    ex = env["make"](wallet={"position_fraction": 0.9},
+                     trading={"exit": {"take_profit": None, "stop_loss": None,
+                                       "time_stop_min": 600, "liquidity_collapse": None}}, **over)
+    ex.tick()
+    obs(env["conn"], "A", 10, 1.0)
+    at(env, 15)
+    ex.tick()
+    add_pair(env["conn"], "B")
+    at(env, 20)
+    ex.tick()                                       # B: decided, waiting for its fill
+    assert trade(env, "B")["status"] == "pending_entry"
+    obs(env["conn"], "A", 40, 0.5)                 # -50% on 90% of equity: cooks the run
+    at(env, 41)
+    ex.tick()
+    assert ex.wallet.is_cooked
+    return ex
+
+
+def test_cooking_records_the_liquidation_in_trades(env):
+    ex = _cook_with(env)
+    a, b = trade(env, "A"), trade(env, "B")
+    pos = ex.wallet.conn.execute("SELECT pnl, proceeds FROM wallet_positions WHERE position_id = ?",
+                                 (a["position_id"],)).fetchone()
+    assert a["status"] == "closed" and a["exit_reason"] == "kill_switch_liquidation"
+    assert a["pnl"] == pytest.approx(pos["pnl"] / 1e6) and a["pnl"] < -40
+    assert a["exit_fill_t"] is not None and a["exit_mid"] == pytest.approx(0.5)
+    assert b["status"] == "entry_failed" and "cooked" in b["note"]
+    assert env["conn"].execute("SELECT COUNT(*) FROM trades WHERE status IN "
+                               "('pending_entry', 'open', 'pending_exit')").fetchone()[0] == 0
+
+
+def test_a_honeypot_is_not_sold_at_the_mark_when_the_run_cooks(env):
+    _cook_with(env, fills={"honeypot_rate": 1.0})
+    a = trade(env, "A")
+    assert a["status"] == "failed_sell" and a["pnl"] < -90     # nothing back, not 50% back

@@ -343,6 +343,9 @@ class MockWallet:
                 self._create_run_locked(config or WalletConfig.from_env())
             row = self.conn.execute("SELECT MAX(run_id) AS r FROM wallet_runs").fetchone()
         self.run_id: int = row["r"]
+        # Position ids that can't be sold (paper honeypots, set by the executor).
+        # A kill-switch liquidation closes these as failed sells, not at the mark.
+        self.unsellable: set[int] = set()
         self.config = WalletConfig.from_json(self._run()["config"])
 
     def close(self):
@@ -696,8 +699,9 @@ class MockWallet:
         for pos in self.conn.execute(
                 "SELECT * FROM wallet_positions WHERE run_id = ? AND status = 'open'",
                 (self.run_id,)).fetchall():
-            self._close_locked(pos, D(pos["mark_price"]), failed=False,
-                               reason="kill switch liquidation")
+            stuck = pos["position_id"] in self.unsellable
+            self._close_locked(pos, D(pos["mark_price"]), failed=stuck,
+                               reason="kill switch liquidation" + (" (honeypot)" if stuck else ""))
             self._snapshot_locked("close", pos["position_id"])
         self._event_locked("cooked", f"run {self.run_id} COOKED: {cause}",
                            {"balance": str(self.balance), "vault": str(self.vault)})

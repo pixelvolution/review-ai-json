@@ -100,13 +100,15 @@ def exit_trigger(rule: ExitRule, entry_mid: float, entry_liq: float, entry_t: fl
     if not o.price:
         return None
     ret = o.price / entry_mid - 1
+    # Liquidity first: when a pool is drained the quoted price is meaningless (a
+    # rug often shows as a price spike), so calling it a take-profit would mislabel it.
+    if (rule.liquidity_collapse is not None and o.liquidity is not None and entry_liq
+            and o.liquidity < entry_liq * (1 - rule.liquidity_collapse)):
+        return "liquidity_collapse"
     if rule.take_profit is not None and ret >= rule.take_profit:
         return "take_profit"
     if rule.stop_loss is not None and ret <= -rule.stop_loss:
         return "stop_loss"
-    if (rule.liquidity_collapse is not None and o.liquidity is not None and entry_liq
-            and o.liquidity < entry_liq * (1 - rule.liquidity_collapse)):
-        return "liquidity_collapse"
     if rule.time_stop_s is not None and o.t - entry_t >= rule.time_stop_s:
         return "time_stop"
     return None

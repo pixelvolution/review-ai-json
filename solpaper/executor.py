@@ -45,6 +45,8 @@ class Executor:
         self.wallet = wallet or MockWallet(cfg["db_path"], WalletConfig(**cfg["wallet"]))
         self.halted = False
         self._sizer_noted: set[tuple[str, str]] = set()
+        self.wallet.unsellable |= {r[0] for r in conn.execute(
+            "SELECT position_id FROM trades WHERE honeypot = 1 AND status IN ('open', 'pending_exit')")}
 
     # ---------------------------------------------------------------- data
     def observations(self, pair: str, after: float) -> list[Obs]:
@@ -111,10 +113,32 @@ class Executor:
         return out
 
     def _halt(self, cause: str):
+        self._settle_cooked()
         if not self.halted:
             self.halted = True
             event(self.conn, "trading_halted", f"wallet run {self.wallet.run_id} is cooked: "
                   f"{cause}. Trading stopped; run `python reset.py` to start a new run.")
+
+    def _settle_cooked(self):
+        """Bring ``trades`` in line with a cooked run: the wallet liquidated the open
+        positions at their last mark, and pending entries will never fill."""
+        for r in self.conn.execute("""
+                SELECT t.id, p.status pstatus, p.closed_at, p.quote_exit, p.fill_exit, p.entry_fee,
+                       p.exit_fee, p.entry_tip, p.exit_tip, p.proceeds, p.pnl, p.close_reason
+                FROM trades t JOIN wallet_positions p USING (position_id)
+                WHERE t.status IN ('open', 'pending_exit') AND p.status != 'open'""").fetchall():
+            m = lambda v: (v or 0) / 1e6           # wallet money is integer micro-dollars
+            self.conn.execute(
+                "UPDATE trades SET status = ?, exit_reason = 'kill_switch_liquidation', "
+                "exit_fill_t = ?, exit_mid = ?, exit_price = ?, fees = ?, tips = ?, proceeds = ?, "
+                "pnl = ?, note = ? WHERE id = ?",
+                ("failed_sell" if r["pstatus"] == "failed" else "closed", _ts(r["closed_at"]),
+                 r["quote_exit"] and float(r["quote_exit"]), r["fill_exit"] and float(r["fill_exit"]),
+                 m(r["entry_fee"]) + m(r["exit_fee"]), m(r["entry_tip"]) + m(r["exit_tip"]),
+                 m(r["proceeds"]), m(r["pnl"]),
+                 f"{r['close_reason']} at the last mark (no price impact)", r["id"]))
+        self.conn.execute("UPDATE trades SET status = 'entry_failed', note = 'run cooked before the "
+                          "fill' WHERE status = 'pending_entry'")
 
     def _new_entries(self) -> int:
         tc = self.tc
@@ -178,6 +202,8 @@ class Executor:
                 continue
             hp = is_honeypot(self.model.honeypot_seed, t["pair_address"], o.t,
                              self.model.honeypot_rate)
+            if hp:
+                self.wallet.unsellable.add(pos["position_id"])
             self.conn.execute(
                 "UPDATE trades SET status = 'open', position_id = ?, entry_fill_t = ?, "
                 "entry_delay_s = ?, entry_mid = ?, entry_price = ?, entry_impact = ?, "

@@ -35,6 +35,9 @@
 
 | Date | Incident | Root Cause | Resolution | Prevention |
 |------|----------|------------|------------|------------|
+| 2026-11-08 | First live run (user's PC) cooked after 46 min; four trades stayed `open` in `trades` after the wallet liquidated them | `_cook_locked` closes wallet positions, but nothing updated the executor's `trades` rows | `Executor._settle_cooked` records them as `kill_switch_liquidation` (and pending entries as `entry_failed`) on every halted tick; also repairs existing DBs | `test_cooking_records_the_liquidation_in_trades` |
+| 2026-11-08 | FNUT exit labelled `take_profit` (+147%) but lost 101%: liquidity had gone from $21k to $0.02 | `exit_trigger` checked take-profit before liquidity collapse; a rug can show as a price spike | Liquidity collapse is checked first (labels only; same exit time and fill) | `test_a_drained_pool_is_a_liquidity_collapse_even_when_the_price_spikes` |
+| 2026-11-08 | Kill-switch liquidation would sell a paper honeypot at its mark | The wallet didn't know which positions were unsellable | `MockWallet.unsellable`, filled by the executor; those close as failed sells | `test_a_honeypot_is_not_sold_at_the_mark_when_the_run_cooks` |
 | 2026-11-07 | Wallet crashed on prices passed as numpy numbers | `Decimal(repr(np.float64))` parses `"np.float64(0.5)"`, which isn't a number | `D()` converts with `repr(float(value))` | Regression test `test_accepts_numpy_prices` |
 | 2026-11-07 | MCP suggestions written to the wrong database | MCP stdio clients start the server with a minimal environment, so `MOCK_WALLET_*` variables weren't inherited | Pass `env` in the client config | Documented in `mock_wallet/README.md` |
 | 2026-11-07 | Scanner recorded cached responses as new observations | The pair-quote cache window (30s) equalled the refresh interval (30s) | Snapshots carry `from_cache` and are skipped; cache window 25s | Test asserts a cached response adds no rows |
