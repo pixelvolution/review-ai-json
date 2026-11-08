@@ -9,6 +9,11 @@ POST /api/stop/<name>   stop it                         } token header, so no
 POST /api/export        write CSVs into .\\exports      } web page can press
 POST /api/open-exports  open the exports folder         } these buttons
 POST /api/quit          stop everything and close       }
+POST /api/update        git pull (+ pip install if the  }
+                        requirements changed)           }
+POST /api/restart       restart onto the pulled code    }
+POST /api/reset         start a new wallet run (only    }
+                        after a cook)                   }
 
 Requests whose Host header isn't 127.0.0.1/localhost are refused (blocks DNS
 rebinding: another site can't read this page's data through a renamed host).
@@ -21,14 +26,17 @@ import os
 import secrets
 import subprocess
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import data
+from ..wallet import WalletError
 from .procs import ProcessManager
 
 PAGE = Path(__file__).with_name("page.html")
+NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 
 
 class Portal:
@@ -40,6 +48,62 @@ class Portal:
         self.token = secrets.token_urlsafe(24)
         self.exports = root / "exports"
         self.on_quit = None            # set by __main__: stops the processes and the server
+        self.on_restart = None         # set by __main__: hands over to a fresh portal process
+        self.boot = secrets.token_hex(4)   # changes on every start; the page reloads on a new one
+        self._lock = threading.Lock()      # one update/reset at a time
+
+    def git(self, *args, timeout=120) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=timeout,
+                              env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, **NO_WINDOW)
+
+    def update(self) -> dict:
+        """git pull (fast-forward only). Never touches the database or local settings."""
+        with self._lock:
+            try:
+                before = self.git("rev-parse", "HEAD")
+            except FileNotFoundError:
+                return {"ok": False, "output": "git isn't installed or isn't on PATH. "
+                        "Pull in GitHub Desktop instead, then press Update again to restart."}
+            if before.returncode:
+                return {"ok": False, "output": before.stderr.strip() or "not a git repository"}
+            branch = self.git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+            try:
+                pull = self.git("pull", "--ff-only")
+            except subprocess.TimeoutExpired:
+                return {"ok": False, "branch": branch, "output": "git pull timed out (2 min)."}
+            out = (pull.stdout + pull.stderr).strip()
+            after = self.git("rev-parse", "HEAD").stdout.strip()
+            changed = after != before.stdout.strip()
+            res = {"ok": pull.returncode == 0, "branch": branch, "changed": changed, "output": out}
+            if changed:
+                files = self.git("diff", "--name-only", before.stdout.strip(), after).stdout.split()
+                res["commits"] = self.git("log", "--oneline", f"{before.stdout.strip()}..{after}"
+                                          ).stdout.strip().splitlines()
+                if "solpaper/requirements.txt" in files:
+                    pip = subprocess.run([self.procs.python, "-m", "pip", "install", "-r",
+                                          "solpaper/requirements.txt"], cwd=self.root,
+                                         capture_output=True, text=True, encoding="utf-8",
+                                         errors="replace", timeout=600, **NO_WINDOW)
+                    res["output"] += "\n\n[packages] " + ("installed" if pip.returncode == 0
+                                                          else pip.stdout[-1500:] + pip.stderr[-1500:])
+            return res
+
+    def reset_wallet(self) -> dict:
+        """Start run N+1 after a cook. The scanner caches the run it started with, so a
+        running scanner is restarted to pick up the new run."""
+        from ..reset import reset, wallet_config
+        with self._lock:
+            was_running = self.procs.running("scanner")
+            if was_running:
+                self.procs.stop("scanner")
+            try:
+                run = reset(self.db, wallet_config(self.cfg))
+            finally:
+                if was_running:
+                    self.procs.start("scanner")
+            return {"run": run, "start_balance": self.cfg["wallet"]["start_balance"],
+                    "scanner_restarted": was_running}
 
     def all(self) -> dict:
         return {"processes": self.procs.status(), "summary": data.summary(self.db),
@@ -89,7 +153,7 @@ def make_handler(portal: Portal):
                 html = PAGE.read_text(encoding="utf-8").replace("__TOKEN__", portal.token)
                 return self._send(200, html.encode(), "text/html; charset=utf-8")
             if u.path == "/api/ping":
-                return self._send(200, {"ok": True, "app": "solpaper-portal"})
+                return self._send(200, {"ok": True, "app": "solpaper-portal", "boot": portal.boot})
             if u.path == "/api/all":
                 return self._send(200, portal.all())
             if u.path == "/api/logs":
@@ -114,6 +178,16 @@ def make_handler(portal: Portal):
                     return self._send(200, portal.export())
                 if parts == ["api", "open-exports"]:
                     return self._send(200, portal.open_exports())
+                if parts == ["api", "update"]:
+                    return self._send(200, portal.update())
+                if parts == ["api", "reset"]:
+                    return self._send(200, portal.reset_wallet())
+                if parts == ["api", "restart"]:
+                    if not portal.on_restart:
+                        return self._send(409, {"error": "restart isn't available here"})
+                    self._send(200, {"ok": True, "boot": portal.boot})
+                    portal.on_restart()
+                    return
                 if parts == ["api", "quit"]:
                     self._send(200, {"ok": True})
                     if portal.on_quit:
@@ -121,6 +195,8 @@ def make_handler(portal: Portal):
                     return
             except KeyError:
                 return self._send(404, {"error": "unknown process"})
+            except WalletError as e:            # e.g. reset while the run is still alive
+                return self._send(409, {"error": str(e)})
             self._send(404, {"error": "not found"})
 
     return Handler

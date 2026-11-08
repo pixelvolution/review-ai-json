@@ -31,15 +31,24 @@ wallet, open positions, trades, signals, filters, study progress and logs.
 
 1. Double-click **`Setup solpaper.bat`** once. It creates `.venv` and installs
    the packages. Skip this if you already have a `.venv` in the repo folder.
-2. Double-click **`Start solpaper.bat`**. The portal opens at
-   http://127.0.0.1:8765 and starts the scanner and the study. Keep the black
-   window open: closing it, or pressing **Quit** in the portal, stops everything.
-3. Optional, for a real `.exe`: double-click **`build_exe.bat`** once. It
-   builds `solpaper.exe` into the repo folder (PyInstaller, about a minute).
-   Double-clicking `solpaper.exe` starts everything with no black window, or
-   just reopens the page if it's already running. Use **Quit** in the portal
-   to stop it. Right-click the .exe and choose *Send to > Desktop (create
-   shortcut)* for a desktop icon.
+2. Double-click **`Start solpaper.bat`**. It starts everything in the
+   background and opens the portal at http://127.0.0.1:8765. Stop everything
+   with **Quit** in the portal. Closing the browser tab doesn't stop it.
+3. Optional: double-click **`build_exe.bat`** once to get `solpaper.exe`.
+   It does exactly what `Start solpaper.bat` does. Right-click it and choose
+   *Send to > Desktop (create shortcut)* for a desktop icon.
+
+Buttons:
+
+- **Update**: runs `git pull` (fast-forward only), installs packages if
+  `requirements.txt` changed, lists what's new and offers to restart. The
+  restart brings back whichever of the scanner and study were running, and the
+  page reloads by itself. Needs `git` on PATH; otherwise pull in GitHub
+  Desktop and press Update to restart.
+- **Start new run** (only shown when the wallet is cooked): starts the next
+  $100 run, same as `python reset.py`. The cooked run stays in the records as
+  it ended. The scanner restarts so it trades with the new wallet. The Paper
+  trades panel counts the current run only.
 
 The .exe is only a launcher: it runs the code in this folder with `.venv`, so a
 `git pull` updates the app without rebuilding. The exe must stay in the repo folder.

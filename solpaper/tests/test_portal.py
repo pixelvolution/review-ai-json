@@ -34,7 +34,8 @@ def seeded(tmp_path):
     p = w.open_position("A", 1.0, 10)
     w.close_position(p["position_id"], 1.2)
     conn.execute("INSERT INTO trades (pair_address, name, status, notional, pnl, exit_fill_t, "
-                 "exit_reason) VALUES ('A', 'AAA / SOL', 'closed', 10, 1.9, 1.78e9, 'take_profit')")
+                 "exit_reason, wallet_run_id) VALUES ('A', 'AAA / SOL', 'closed', 10, 1.9, 1.78e9, "
+                 "'take_profit', 1)")
     conn.commit()
     return cfg
 
@@ -175,3 +176,78 @@ def test_launcher_reads_the_port_file_and_finds_no_portal(tmp_path):
 def test_launcher_sees_a_running_portal(running):
     _, port, _ = running
     assert launcher.portal_up(f"http://127.0.0.1:{port}/")
+
+
+# ------------------------------------------------------------------ update, restart, reset
+
+def git(cwd, *args):
+    import subprocess
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c",
+                    "init.defaultBranch=main", *args], cwd=cwd, check=True, capture_output=True)
+
+
+def test_update_pulls_new_commits_and_reports_them(seeded, tmp_path):
+    origin, work, mine = tmp_path / "origin.git", tmp_path / "work", tmp_path / "mine"
+    git(tmp_path, "init", "--bare", str(origin))
+    git(tmp_path, "clone", str(origin), str(work))
+    (work / "a.txt").write_text("1")
+    git(work, "add", ".")
+    git(work, "commit", "-m", "first")
+    git(work, "push", "origin", "HEAD")
+    git(tmp_path, "clone", str(origin), str(mine))
+    portal = Portal(seeded, mine, ProcessManager(mine, tmp_path / "logs"))
+    r = portal.update()
+    assert r["ok"] and not r["changed"]
+    (work / "a.txt").write_text("2")
+    git(work, "commit", "-am", "second")
+    git(work, "push", "origin", "HEAD")
+    r = portal.update()
+    assert r["ok"] and r["changed"] and r["commits"][0].endswith("second")
+    assert (mine / "a.txt").read_text() == "2"
+
+
+def test_update_outside_a_git_folder_says_so(seeded, tmp_path):
+    r = Portal(seeded, tmp_path, ProcessManager(tmp_path, tmp_path / "logs")).update()
+    assert r["ok"] is False and r["output"]
+
+
+def test_restart_button_and_boot_id(running):
+    portal, port, _ = running
+    called = threading.Event()
+    portal.on_restart = called.set
+    assert call(port, "/api/ping")[1]["boot"] == portal.boot
+    assert call(port, "/api/restart", "POST")[0] == 403
+    assert call(port, "/api/restart", "POST", token=portal.token)[0] == 200
+    assert called.wait(2)
+
+
+def test_reset_starts_a_new_run_only_after_a_cook_and_restarts_the_scanner(seeded, tmp_path):
+    procs = ProcessManager(tmp_path, tmp_path / "logs", commands={"scanner": SLEEPER["sleeper"]})
+    portal = Portal(seeded, tmp_path, procs=procs)
+    httpd = serve(portal, 0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    try:
+        code, body = call(port, "/api/reset", "POST", token=portal.token)
+        assert code == 409 and "still alive" in body["error"]      # run 1 isn't cooked
+        MockWallet(seeded["db_path"]).cook("test")
+        procs.start("scanner")
+        pid = procs.status()["scanner"]["pid"]
+        code, body = call(port, "/api/reset", "POST", token=portal.token)
+        assert code == 200 and body["run"] == 2 and body["scanner_restarted"]
+        assert procs.running("scanner") and procs.status()["scanner"]["pid"] != pid
+        assert call(port, "/api/all")[1]["summary"]["wallet"]["status"] == "alive"
+    finally:
+        procs.stop_all()
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_trade_summary_counts_only_the_current_run(seeded):
+    MockWallet(seeded["db_path"]).cook("test")
+    from solpaper.reset import reset, wallet_config
+    assert data.summary(seeded["db_path"])["trades"]["total"] == 1
+    reset(seeded["db_path"], wallet_config(seeded))
+    t = data.summary(seeded["db_path"])["trades"]
+    assert t["run"] == 2 and t["total"] == 0 and t["pnl"] == 0
+    assert data.trades(seeded["db_path"])[0]["run"] == 1      # history still listed, with its run

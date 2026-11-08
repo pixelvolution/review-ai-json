@@ -66,11 +66,14 @@ def summary(db_path: str) -> dict:
                     "worst_drawdown": float(w["max_drawdown"] or 0),
                     "cooked_reason": w["cooked_reason"]}
         if "trades" in have:
+            # This wallet run only: a new run starts the count from zero.
+            run = out.get("wallet", {}).get("run")
             t = one("""SELECT COUNT(*) n, SUM(status IN ('closed','failed_sell')) done,
                        SUM(CASE WHEN status IN ('closed','failed_sell') THEN pnl END) pnl,
                        SUM(CASE WHEN status IN ('closed','failed_sell') AND pnl > 0 THEN 1 ELSE 0 END) wins,
-                       SUM(fees) fees, SUM(tips) tips FROM trades""")
-            out["trades"] = {"total": t["n"], "closed": t["done"] or 0, "pnl": t["pnl"] or 0.0,
+                       SUM(fees) fees, SUM(tips) tips FROM trades
+                       WHERE ? IS NULL OR wallet_run_id = ?""", run, run)
+            out["trades"] = {"run": run, "total": t["n"], "closed": t["done"] or 0, "pnl": t["pnl"] or 0.0,
                              "wins": t["wins"] or 0, "fees": t["fees"] or 0.0, "tips": t["tips"] or 0.0}
         if "launch_cohort" in have:
             out["study"] = {
@@ -119,7 +122,8 @@ def trades(db_path: str, limit: int = 20) -> list[dict]:
         if "trades" not in _tables(conn):
             return []
         return [{**dict(r), "exit_fill": _fmt_t(r["exit_fill_t"])} for r in conn.execute(
-            "SELECT name, status, exit_reason, notional, pnl, exit_fill_t, entry_impact, exit_impact "
+            "SELECT wallet_run_id run, name, status, exit_reason, notional, pnl, exit_fill_t, "
+            "entry_impact, exit_impact "
             "FROM trades WHERE status IN ('closed', 'failed_sell', 'entry_failed') "
             "ORDER BY id DESC LIMIT ?", (limit,))]
     finally:
