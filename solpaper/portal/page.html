@@ -50,7 +50,7 @@ svg { width:100%; height:160px; display:block; }
 </head>
 <body>
 <header>
-  <h1>solpaper</h1>
+  <h1>solpaper <span class="muted" id="version" style="font-size:12px;font-weight:400"></span></h1>
   <span class="sim">Simulator: paper money only. No keys, no wallet, no real orders.</span>
   <span style="flex:1"></span>
   <div class="proc"><span class="dot" id="dot-scanner"></span><b>Scanner</b>
@@ -110,7 +110,12 @@ async function doUpdate() {
   let r;
   try { r = await post("/api/update"); } finally { b.disabled = false; b.textContent = "Update"; }
   if (!r.ok) return alert("Update failed:\n\n" + (r.output || r.error || "unknown error"));
-  if (!r.changed) return alert(`Already up to date (branch ${r.branch}).`);
+  if (!r.changed && r.restart_needed) {
+    if (confirm("You already have the latest code, but solpaper is still running an older version.\n\n" +
+                "Restart now to use it? The scanner and study restart too (about 20 seconds).")) restartPortal();
+    return;
+  }
+  if (!r.changed) return alert(`Already up to date and running the latest version (branch ${r.branch}).`);
   const what = (r.commits || []).slice(0, 12).join("\n");
   if (confirm(`Downloaded ${(r.commits || []).length} update(s) on ${r.branch}:\n\n${what}\n\n` +
               "Restart now to use them? The scanner and study restart too (about 20 seconds).")) restartPortal();
@@ -209,6 +214,7 @@ async function refreshLog() {
     el.textContent = r.lines.length ? r.lines.join("\n") : `No ${logName} log yet.`;
     if (atEnd) el.scrollTop = el.scrollHeight; } catch (e) {}
 }
+fetch("/api/ping").then(r => r.json()).then(p => { if (p.version) $("version").textContent = "v " + p.version; });
 refresh(); refreshLog(); setInterval(refresh, 3000); setInterval(refreshLog, 3000);
 </script>
 </body>

@@ -51,6 +51,14 @@ class Portal:
         self.on_restart = None         # set by __main__: hands over to a fresh portal process
         self.boot = secrets.token_hex(4)   # changes on every start; the page reloads on a new one
         self._lock = threading.Lock()      # one update/reset at a time
+        self.version = self.head()         # the code this portal (and its processes) started on
+
+    def head(self) -> str | None:
+        try:
+            r = self.git("rev-parse", "HEAD", timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return r.stdout.strip() if r.returncode == 0 else None
 
     def git(self, *args, timeout=120) -> subprocess.CompletedProcess:
         return subprocess.run(["git", *args], cwd=self.root, capture_output=True, text=True,
@@ -75,7 +83,9 @@ class Portal:
             out = (pull.stdout + pull.stderr).strip()
             after = self.git("rev-parse", "HEAD").stdout.strip()
             changed = after != before.stdout.strip()
-            res = {"ok": pull.returncode == 0, "branch": branch, "changed": changed, "output": out}
+            res = {"ok": pull.returncode == 0, "branch": branch, "changed": changed, "output": out,
+                   # e.g. pulled in GitHub Desktop: nothing new to pull, but what's running is old
+                   "restart_needed": bool(self.version) and after != self.version}
             if changed:
                 files = self.git("diff", "--name-only", before.stdout.strip(), after).stdout.split()
                 res["commits"] = self.git("log", "--oneline", f"{before.stdout.strip()}..{after}"
@@ -153,7 +163,8 @@ def make_handler(portal: Portal):
                 html = PAGE.read_text(encoding="utf-8").replace("__TOKEN__", portal.token)
                 return self._send(200, html.encode(), "text/html; charset=utf-8")
             if u.path == "/api/ping":
-                return self._send(200, {"ok": True, "app": "solpaper-portal", "boot": portal.boot})
+                return self._send(200, {"ok": True, "app": "solpaper-portal", "boot": portal.boot,
+                                        "version": (portal.version or "")[:7]})
             if u.path == "/api/all":
                 return self._send(200, portal.all())
             if u.path == "/api/logs":
@@ -185,7 +196,8 @@ def make_handler(portal: Portal):
                 if parts == ["api", "restart"]:
                     if not portal.on_restart:
                         return self._send(409, {"error": "restart isn't available here"})
-                    self._send(200, {"ok": True, "boot": portal.boot})
+                    self._send(200, {"ok": True, "boot": portal.boot,
+                                        "version": (portal.version or "")[:7]})
                     portal.on_restart()
                     return
                 if parts == ["api", "quit"]:

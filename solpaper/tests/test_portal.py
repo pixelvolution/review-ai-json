@@ -203,7 +203,15 @@ def test_update_pulls_new_commits_and_reports_them(seeded, tmp_path):
     git(work, "push", "origin", "HEAD")
     r = portal.update()
     assert r["ok"] and r["changed"] and r["commits"][0].endswith("second")
-    assert (mine / "a.txt").read_text() == "2"
+    assert (mine / "a.txt").read_text() == "2" and r["restart_needed"]
+    # Pulled elsewhere (GitHub Desktop): nothing new, but the running code is old.
+    (work / "a.txt").write_text("3")
+    git(work, "commit", "-am", "third")
+    git(work, "push", "origin", "HEAD")
+    git(mine, "pull")
+    r = portal.update()
+    assert r["ok"] and not r["changed"] and r["restart_needed"]
+    assert Portal(seeded, mine, portal.procs).update()["restart_needed"] is False
 
 
 def test_update_outside_a_git_folder_says_so(seeded, tmp_path):
