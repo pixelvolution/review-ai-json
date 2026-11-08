@@ -49,11 +49,19 @@ class Executor:
             "SELECT position_id FROM trades WHERE honeypot = 1 AND status IN ('open', 'pending_exit')")}
 
     # ---------------------------------------------------------------- data
+    def on_chain(self, pair: str) -> bool:
+        """Pairs watch.py reads on-chain every few seconds (and validated): one source per
+        pair, so provider readings that lag up to 30 s can't trip an exit on stale prices."""
+        r = self.conn.execute("SELECT 1 FROM pool_reads WHERE pair_address = ? AND supported = 1 "
+                              "AND validated = 1", (pair,)).fetchone()
+        return r is not None
+
     def observations(self, pair: str, after: float) -> list[Obs]:
         cut = datetime.fromtimestamp(after, timezone.utc).isoformat(timespec="milliseconds")
+        table = "position_marks" if self.on_chain(pair) else "pairs_seen"
         return [Obs(_ts(r["observed_at"]), r["price_usd"], r["liquidity_usd"])
                 for r in self.conn.execute(
-                    "SELECT observed_at, price_usd, liquidity_usd FROM pairs_seen "
+                    f"SELECT observed_at, price_usd, liquidity_usd FROM {table} "
                     "WHERE pair_address = ? AND observed_at > ? ORDER BY id", (pair, cut))]
 
     def latest_obs(self, pair: str):

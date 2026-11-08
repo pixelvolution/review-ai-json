@@ -190,6 +190,8 @@ async function refresh() {
   }
   $("positions").innerHTML = table([["Coin", r => esc(r.name)], ["Status", r => esc(r.status)], ["Size", r => usd(r.notional)],
     ["Entry", r => r.entry_mid ?? "-"], ["Mark", r => r.mark_price ?? "-"], ["Move", r => `<span class="${cls(r.move)}">${pct(r.move)}</span>`],
+    ["P&L if sold now", r => r.pnl_now == null ? "-" :
+      `<span class="${cls(r.pnl_now)}" title="After price impact, exit fee and tip; entry costs included">${usd(r.pnl_now)} (${pct(r.pnl_now_pct)})</span>`],
     ["Exit trigger", r => esc(r.exit_reason || "")], ["Filled (UTC)", r => esc(r.entry_fill || "")]], a.positions || []);
   $("signals").innerHTML = table([["UTC", r => esc(r.time)], ["Kind", r => esc(r.kind)], ["Coin", r => esc(r.name)],
     ["Reason", r => esc(r.reason)]], a.signals || []);

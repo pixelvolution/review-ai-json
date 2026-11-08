@@ -268,6 +268,36 @@ CREATE TABLE IF NOT EXISTS trades (
 );
 CREATE INDEX IF NOT EXISTS trades_status ON trades(status);
 
+-- Fast on-chain reads for pairs the executor holds (watch.py). Kept apart from
+-- pairs_seen so filters, research and the study never see these partial rows.
+CREATE TABLE IF NOT EXISTS pool_reads (
+    pair_address   TEXT PRIMARY KEY,
+    supported      INTEGER NOT NULL,  -- 1 = read on-chain; 0 = use the 30 s provider readings
+    validated      INTEGER NOT NULL DEFAULT 0,  -- first on-chain price agreed with DexScreener
+    reason         TEXT,
+    base_mint      TEXT,
+    quote_mint     TEXT,
+    base_vault     TEXT,
+    quote_vault    TEXT,
+    base_decimals  INTEGER,
+    quote_decimals INTEGER,
+    checked_at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS position_marks (
+    id             INTEGER PRIMARY KEY,
+    pair_address   TEXT NOT NULL,
+    observed_at    TEXT NOT NULL,
+    slot           INTEGER,
+    price_native   REAL,              -- quote tokens per base token, from the pool's reserves
+    quote_usd      REAL,              -- quote token's USD price from the latest provider reading
+    price_usd      REAL,
+    liquidity_usd  REAL,              -- 2 x quote reserve in USD (DexScreener's definition)
+    base_reserve   REAL,
+    quote_reserve  REAL
+);
+CREATE INDEX IF NOT EXISTS position_marks_pair ON position_marks(pair_address, id);
+
 CREATE TABLE IF NOT EXISTS events (
     id      INTEGER PRIMARY KEY,
     ts      TEXT NOT NULL,

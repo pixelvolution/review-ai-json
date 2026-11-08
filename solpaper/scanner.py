@@ -58,6 +58,7 @@ class Scanner:
         self.clock = clock
         self.next_run: dict[str, float] = {}
         self.stop = False
+        self.watching = False
 
     # ---------------------------------------------------------------- logging
     def record(self, snaps: list[PairSnapshot]) -> int:
@@ -149,6 +150,8 @@ class Scanner:
 
     def tick(self):
         for job, every in self.cfg["scanner"]["intervals_s"].items():
+            if job == "trade" and self.watching:
+                continue                     # the position watcher runs the executor (watch.py)
             start = self.clock()  # each job is timed from its own start, not the pass's
             if start >= self.next_run.get(job, 0):
                 self.next_run[job] = start + every
@@ -168,6 +171,10 @@ class Scanner:
     def run(self, minutes: float | None = None):
         end = None if minutes is None else self.clock() + minutes * 60
         event(self.conn, "scanner_start", "scanner started", {"minutes": minutes})
+        if self.cfg.get("watch", {}).get("enabled"):
+            from .watch import start_thread
+            start_thread(self.cfg, lambda: self.stop or (end is not None and self.clock() >= end))
+            self.watching = True
         while not self.stop and (end is None or self.clock() < end):
             self.tick()
             time.sleep(self.cfg["scanner"]["tick_s"])

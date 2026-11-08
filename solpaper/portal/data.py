@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+
+from ..fills import cp_value_after_impact
 
 
 def open_db(path: str) -> sqlite3.Connection:
@@ -97,21 +100,47 @@ def positions(db_path: str) -> list[dict]:
     try:
         if "trades" not in _tables(conn):
             return []
-        rows = conn.execute("""
+        on_chain = ("(SELECT liquidity_usd FROM position_marks m WHERE m.pair_address = "
+                    "t.pair_address ORDER BY m.id DESC LIMIT 1)" if "position_marks" in _tables(conn)
+                    else "NULL")
+        rows = conn.execute(f"""
             SELECT t.id, t.name, t.status, t.notional, t.entry_mid, t.entry_price, t.entry_fill_t,
-                   t.exit_reason, p.mark_price, p.qty
+                   t.exit_reason, p.mark_price, p.qty, p.cost_basis, r.config,
+                   COALESCE({on_chain}, (SELECT liquidity_usd FROM pairs_seen s
+                       WHERE s.pair_address = t.pair_address AND s.liquidity_usd IS NOT NULL
+                       ORDER BY s.id DESC LIMIT 1)) liquidity
             FROM trades t LEFT JOIN wallet_positions p ON p.position_id = t.position_id
+                          LEFT JOIN wallet_runs r ON r.run_id = p.run_id
             WHERE t.status IN ('pending_entry', 'open', 'pending_exit') ORDER BY t.id DESC""").fetchall()
         out = []
         for r in rows:
-            d = dict(r)
+            d = {k: r[k] for k in r.keys() if k not in ("config", "cost_basis")}
             if r["mark_price"] and r["entry_mid"]:
                 d["move"] = float(r["mark_price"]) / r["entry_mid"] - 1
             d["entry_fill"] = _fmt_t(r["entry_fill_t"])
+            d.update(sell_now(r))
             out.append(d)
         return out
     finally:
         conn.close()
+
+
+def sell_now(r) -> dict:
+    """What selling the whole position at the latest reading would return, after every
+    cost the wallet charges on a real exit: price impact on the pool (constant product,
+    latest known liquidity), exit fee and tip. P&L is against the cost basis, which
+    already includes the entry fee and tip. Unknown liquidity = unknown, not zero."""
+    if r["mark_price"] is None or r["cost_basis"] is None or r["liquidity"] is None:
+        return {"pnl_now": None, "pnl_now_pct": None}
+    cfg = json.loads(r["config"] or "{}")
+    fee, tip = float(cfg.get("fee_rate", 0)), float(cfg.get("tip", 0))
+    slip = float(cfg.get("slippage_rate", 0))
+    value = float(r["qty"]) * float(r["mark_price"])
+    gross = cp_value_after_impact(value, r["liquidity"]) * (1 - slip)
+    proceeds = gross - gross * fee - tip
+    cost = r["cost_basis"] / 1e6
+    pnl = proceeds - cost
+    return {"pnl_now": pnl, "pnl_now_pct": pnl / cost if cost else None}
 
 
 def trades(db_path: str, limit: int = 20) -> list[dict]:

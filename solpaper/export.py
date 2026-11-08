@@ -60,6 +60,10 @@ QUERIES = {
          "SELECT run_id, ts, trigger, balance / 1e6 AS balance, vault / 1e6 AS vault, "
          "open_position_value / 1e6 AS open_position_value, equity / 1e6 AS equity, "
          "peak_equity / 1e6 AS peak_equity, drawdown FROM wallet_snapshots ORDER BY snapshot_id"),
+        ("position_marks.csv", ["position_marks", "pairs"],
+         "SELECT p.name, m.* FROM position_marks m JOIN pairs p USING (pair_address) ORDER BY m.id"),
+        ("pool_reads.csv", ["pool_reads", "pairs"],
+         "SELECT p.name, p.dex, r.* FROM pool_reads r JOIN pairs p USING (pair_address)"),
     ],
     "study": [
         ("study_cohort.csv", ["launch_cohort", "pairs"],
@@ -126,6 +130,9 @@ FILE_NOTES = {
     "signals.csv": "every entry and exit decision with its reason",
     "wallet_runs.csv": "mock-wallet runs (lives): balance, vault, peak, drawdown, cooked cause",
     "wallet_snapshots.csv": "wallet state after every open and close",
+    "position_marks.csv": "on-chain price reads (every ~5 s) of pumpswap pools the paper trader "
+                          "held: reserves, price, liquidity",
+    "pool_reads.csv": "which held pools are read on-chain, and why not for the others",
 }
 
 

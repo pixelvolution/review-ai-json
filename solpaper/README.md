@@ -65,6 +65,23 @@ Notes:
   to). SQLite keeps the database consistent either way; at most the step in
   progress is lost.
 
+## Fast reads for open positions
+
+DexScreener's numbers only refresh about every 30 seconds, so on its own the
+paper trader sees a stop-loss up to 30 s late and fills entries 15-60 s after
+deciding. For the pairs it holds, the scanner now reads **pumpswap** pools
+straight from the chain every 5 seconds (read-only Solana RPC: the pool's two
+reserve accounts) and runs the paper trader right after, in its own thread.
+
+- Pumpswap only: other pools (Raydium, Meteora, launchpads) aren't priced by
+  their reserve ratio, so they keep the 30 s readings. `pool_reads.csv` says
+  which pool is read how, and why.
+- A pool's first on-chain price must agree with DexScreener's before it's used.
+- Reads go to `position_marks`, not the main readings table, so filters,
+  research and the study are unchanged.
+- Open positions show **P&L if sold now**: after price impact, the exit fee
+  and tip, against the cost basis (which includes the entry fee and tip).
+
 ## Commands
 
     python -m solpaper.portal --autostart   # the portal (what the .bat and .exe run)

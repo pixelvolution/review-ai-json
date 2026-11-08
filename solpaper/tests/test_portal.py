@@ -259,3 +259,28 @@ def test_trade_summary_counts_only_the_current_run(seeded):
     t = data.summary(seeded["db_path"])["trades"]
     assert t["run"] == 2 and t["total"] == 0 and t["pnl"] == 0
     assert data.trades(seeded["db_path"])[0]["run"] == 1      # history still listed, with its run
+
+
+def test_open_positions_show_pnl_if_sold_now_after_every_cost(seeded):
+    from solpaper.fills import cp_value_after_impact
+    cfg = seeded
+    w = MockWallet(cfg["db_path"])
+    p = w.open_position("B", 2.0, 10)
+    w.mark({p["position_id"]: 2.2})                     # +10% on the price
+    conn = connect(cfg["db_path"])
+    conn.execute("INSERT INTO pairs (pair_address, dex, name, first_seen_at, first_source) "
+                 "VALUES ('B', 'pumpswap', 'BBB / SOL', '2026-11-08T00:00:00.000+00:00', 'test')")
+    conn.execute("INSERT INTO trades (pair_address, name, status, notional, entry_mid, position_id, "
+                 "wallet_run_id) VALUES ('B', 'BBB / SOL', 'open', 10, 2.0, ?, 1)", (p["position_id"],))
+    conn.execute("INSERT INTO pairs_seen (pair_address, observed_at, source, price_usd, liquidity_usd) "
+                 "VALUES ('B', '2026-11-08T00:00:00.000+00:00', 'ds_refresh', 2.2, 20000)")
+    pos = [x for x in data.positions(cfg["db_path"]) if x["name"] == "BBB / SOL"][0]
+    c = w.config
+    gross = cp_value_after_impact(float(p["qty"]) * 2.2, 20_000)
+    expect = gross * (1 - float(c.fee_rate)) - float(c.tip) - float(p["cost_basis"])
+    assert pos["move"] == pytest.approx(0.10)
+    assert pos["pnl_now"] == pytest.approx(expect, abs=1e-4)
+    assert pos["pnl_now"] < 10 * 0.10                  # costs eat part of the +10%
+    conn.execute("DELETE FROM pairs_seen WHERE pair_address = 'B'")
+    pos = [x for x in data.positions(cfg["db_path"]) if x["name"] == "BBB / SOL"][0]
+    assert pos["pnl_now"] is None                      # unknown liquidity: unknown, not a guess
