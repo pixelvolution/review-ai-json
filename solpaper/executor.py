@@ -96,6 +96,7 @@ class Executor:
     # ---------------------------------------------------------------- loop
     def tick(self) -> dict:
         out = {"entries": 0, "fills": 0, "exits": 0, "halted": False}
+        self._settle_closed()
         if self.wallet.is_cooked:
             self._halt(self.wallet.cooked_reason or "cooked")
             out["halted"] = True
@@ -113,15 +114,17 @@ class Executor:
         return out
 
     def _halt(self, cause: str):
-        self._settle_cooked()
+        self._settle_closed()
         if not self.halted:
             self.halted = True
             event(self.conn, "trading_halted", f"wallet run {self.wallet.run_id} is cooked: "
                   f"{cause}. Trading stopped; run `python reset.py` to start a new run.")
 
-    def _settle_cooked(self):
-        """Bring ``trades`` in line with a cooked run: the wallet liquidated the open
-        positions at their last mark, and pending entries will never fill."""
+    def _settle_closed(self):
+        """Bring ``trades`` in line with the wallet, every tick. When a run cooks, the
+        wallet liquidates its open positions at their last mark, and that run's pending
+        entries will never fill. This must hold even if the run was cooked and reset
+        before the executor saw it (e.g. Start new run pressed between ticks)."""
         for r in self.conn.execute("""
                 SELECT t.id, p.status pstatus, p.closed_at, p.quote_exit, p.fill_exit, p.entry_fee,
                        p.exit_fee, p.entry_tip, p.exit_tip, p.proceeds, p.pnl, p.close_reason
@@ -137,8 +140,10 @@ class Executor:
                  m(r["entry_fee"]) + m(r["exit_fee"]), m(r["entry_tip"]) + m(r["exit_tip"]),
                  m(r["proceeds"]), m(r["pnl"]),
                  f"{r['close_reason']} at the last mark (no price impact)", r["id"]))
-        self.conn.execute("UPDATE trades SET status = 'entry_failed', note = 'run cooked before the "
-                          "fill' WHERE status = 'pending_entry'")
+        self.conn.execute(
+            "UPDATE trades SET status = 'entry_failed', note = 'run cooked before the fill' "
+            "WHERE status = 'pending_entry' AND (wallet_run_id IS NOT ? OR ?)",
+            (self.wallet.run_id, int(self.wallet.is_cooked)))
 
     def _new_entries(self) -> int:
         tc = self.tc

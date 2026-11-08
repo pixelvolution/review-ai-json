@@ -322,3 +322,30 @@ def test_a_honeypot_is_not_sold_at_the_mark_when_the_run_cooks(env):
     _cook_with(env, fills={"honeypot_rate": 1.0})
     a = trade(env, "A")
     assert a["status"] == "failed_sell" and a["pnl"] < -90     # nothing back, not 50% back
+
+
+def test_new_run_after_a_reset_between_ticks_clears_the_old_runs_trades(env):
+    # 2026-11-08: Start new run was pressed before the executor saw the cook; the
+    # old run's trades stayed "open", showed in the portal and held position slots.
+    add_pair(env["conn"], "A")
+    ex = env["make"](wallet={"position_fraction": 0.5})
+    ex.tick()
+    obs(env["conn"], "A", 10, 1.0)
+    at(env, 15)
+    ex.tick()
+    add_pair(env["conn"], "B")
+    at(env, 20)
+    ex.tick()
+    assert (trade(env, "A")["status"], trade(env, "B")["status"]) == ("open", "pending_entry")
+    ex.wallet.cook("cooked outside the executor")
+    reset(env["cfg"]["db_path"], WalletConfig(**env["cfg"]["wallet"]))
+    ex2 = env["make"](trading={"max_open_positions": 1})
+    assert ex2.wallet.run_id == 2 and not ex2.wallet.is_cooked
+    add_pair(env["conn"], "C")
+    at(env, 30)
+    ex2.tick()
+    assert trade(env, "A")["status"] == "closed"
+    assert trade(env, "A")["exit_reason"] == "kill_switch_liquidation"
+    assert trade(env, "B")["status"] == "entry_failed"
+    c = trade(env, "C")                     # the one free slot went to the new run
+    assert c["status"] == "pending_entry" and c["wallet_run_id"] == 2
